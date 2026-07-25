@@ -1,26 +1,73 @@
-# @hoox/trade-worker
+# HOOX · Trade Worker
+
+**Multi-exchange execution engine — consumes signals, routes orders, logs every tick. The only isolate that touches exchange TLS.**
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/) [![Runtime](https://img.shields.io/badge/Runtime-Bun-black?logo=bun)](https://bun.sh) [![Platform](https://img.shields.io/badge/Platform-Cloudflare%C2%AE%20Workers-orange?logo=cloudflare)](https://workers.cloudflare.com/) [![License](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
 
-Executes trades on Binance, Bybit, and MEXC — routes signals to the configured exchange.
+**Part of the [HOOX](https://github.com/jango-blockchained/hoox) edge-trading mesh — a production-grade algorithmic trading framework on Cloudflare Workers.**  
+**Site:** [hoox.sh](https://hoox.sh) · **Docs:** [docs.hoox.sh](https://docs.hoox.sh) · **Paper:** [`hoox-arxiv-paper-core.pdf`](https://github.com/jango-blockchained/hoox/blob/main/papers/hoox-arxiv-paper-core.pdf)
 
-## For CLI Users
+---
 
-Use this worker indirectly when you run `hoox` commands:
+The execution plane. The trade-worker consumes from the `trade-execution` queue (backed by Cloudflare Queues with at-least-once delivery) and dispatches signed REST orders to Binance, Bybit, and MEXC — all three supported as first-class exchange targets. Each order is wrapped in an exponential-backoff retry loop (up to 5 attempts, jittered) with dead-letter escalation to R2 for forensic replay.
 
-- `hoox secrets update-cf BINANCE_KEY_BINDING trade-worker` — set exchange API keys
-- `hoox deploy worker trade-worker` — deploy the trade worker
+Post-execution, the worker logs structured trade records to D1 (via the [`d1-worker`](../d1-worker) service binding), offloads verbose byte-level logs to R2 (`hoox-system-logs`), fires telemetry events to the [`analytics-worker`](../analytics-worker), and pushes human-readable confirmations through the [`telegram-worker`](../telegram-worker). It is the only isolate in the mesh that holds exchange API credentials at runtime.
 
-→ [Monitor Trading](../../docs/guides/monitor-trading.md) · [CLI Reference](../../docs/reference/cli-commands.md)
+### Role in the Mesh
 
-## For Operators
+```
+  hoox (Gateway)
+       │
+  ┌────┴────┐        trade-execution Queue
+  │ Queue   │◄─────── (async decoupling)
+  └────┬────┘
+       │
+       ▼
+┌────────────────┐
+│ trade-worker   │  ← execution (private, Smart Placement)
+└────┬───────┬───┘
+     │       │
+     ▼       ▼
+  Exchanges  R2 (logs)
+  (Binance,  │
+   Bybit,    ├──► d1-worker (trades, positions)
+   MEXC)     ├──► analytics-worker (telemetry)
+             └──► telegram-worker (confirmations)
+```
 
-This worker provides multi-exchange trade execution. It consumes signals from the `trade-execution` queue, routes orders to Binance, Bybit, or MEXC, logs results to D1, and offloads verbose logs to R2. Retry logic handles failures with exponential backoff (up to 5 attempts) and dead-letter logging.
+### Service Bindings
 
-→ [Operator Docs](../../docs/devops/workers/trade-worker.md)
+| Target Worker                             | Binding             | Protocol                   |
+| ----------------------------------------- | ------------------- | -------------------------- |
+| [`d1-worker`](../d1-worker)               | `D1_SERVICE`        | Trade/position persistence |
+| [`telegram-worker`](../telegram-worker)   | `TELEGRAM_SERVICE`  | Execution notifications    |
+| [`analytics-worker`](../analytics-worker) | `ANALYTICS_SERVICE` | Performance telemetry      |
 
-## Development
+### Entry Points
+
+| Method  | Path              | Auth         | Description                               |
+| ------- | ----------------- | ------------ | ----------------------------------------- |
+| `QUEUE` | `trade-execution` | Internal     | Queue consumer (primary)                  |
+| `POST`  | `/webhook`        | Internal key | Direct signal injection (service binding) |
+| `POST`  | `/process`        | Internal key | Legacy signal processing                  |
+| `GET`   | `/api/signals`    | Internal key | Signal history                            |
+| `GET`   | `/report`         | Internal key | Per-trade R2 report                       |
+| `GET`   | `/health`         | None         | Liveness probe                            |
+
+### Exchange Support
+
+| Exchange | REST API          | Auth Method                   | Rate Limit   |
+| -------- | ----------------- | ----------------------------- | ------------ |
+| Binance  | `api.binance.com` | `X-MBX-APIKEY` + Ed25519      | 1200 req/min |
+| Bybit    | `api.bybit.com`   | `API-Key` + HMAC-SHA256       | 50 req/s     |
+| MEXC     | `api.mexc.com`    | `X-MEXC-APIKEY` + HMAC-SHA256 | 20 req/s     |
+
+### Development
 
 ```bash
 bun test workers/trade-worker
 ```
+
+### License
+
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — part of the HOOX open-core mesh.
