@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // workers/trade-worker/src/wsAdapters/adapters.ts
 //
 // Per-exchange adapter factory. Add a new exchange by writing an adapter

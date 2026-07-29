@@ -56,11 +56,27 @@ Post-execution, the worker logs structured trade records to D1 (via the [`d1-wor
 
 ### Exchange Support
 
-| Exchange | REST API          | Auth Method                   | Rate Limit   |
-| -------- | ----------------- | ----------------------------- | ------------ |
-| Binance  | `api.binance.com` | `X-MBX-APIKEY` + Ed25519      | 1200 req/min |
-| Bybit    | `api.bybit.com`   | `API-Key` + HMAC-SHA256       | 50 req/s     |
-| MEXC     | `api.mexc.com`    | `X-MEXC-APIKEY` + HMAC-SHA256 | 20 req/s     |
+| Exchange | REST API            | Auth Method                  | Rate Limit   | Test trading (`test: true`)       |
+| -------- | ------------------- | ---------------------------- | ------------ | --------------------------------- |
+| Binance  | `fapi.binance.com`  | `X-MBX-APIKEY` + HMAC-SHA256 | 1200 req/min | Yes → `testnet.binancefuture.com` |
+| Bybit    | `api.bybit.com`     | `API-Key` + HMAC-SHA256      | 50 req/s     | Yes → `api-testnet.bybit.com`     |
+| MEXC     | `contract.mexc.com` | `ApiKey` + HMAC-SHA256       | 20 req/s     | No (no public REST sandbox)       |
+
+### Test trading
+
+Set `"test": true` on the webhook/queue JSON payload to route to the exchange testnet when supported. Live trading is the default.
+
+| Concern | Behavior |
+| ------- | -------- |
+| Credentials | Prefer `BINANCE_TESTNET_*` / `BYBIT_TESTNET_*`; fall back to live keys with a warn log |
+| Transport | Always REST testnet — live WebSocket DO is skipped |
+| D1 | Status `TEST_EXECUTED`; position id `{exchange}-testnet-{symbol}-{side}` |
+| Telegram | Exchange label includes `[TEST]` (no queue double-notify on success) |
+| Analytics | Exchange blob `{exchange}:test` |
+| Agent | Skips `*-testnet-*` OPEN rows |
+| Dashboard | Positions filter Live/Testnet; **TEST** badge; close sends `test: true` |
+
+Docs: [Test Trading](https://docs.hoox.sh/enduser/guides/test-trading) (or `docs/enduser/guides/test-trading.mdx` in-repo).
 
 ### Development
 

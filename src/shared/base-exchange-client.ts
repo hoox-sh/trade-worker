@@ -1,4 +1,9 @@
 /**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/**
  * BaseExchangeClient — shared infrastructure for all exchange API clients.
  *
  * Provides:
@@ -18,10 +23,15 @@ export abstract class BaseExchangeClient {
   protected readonly apiKey: string;
   protected readonly apiSecret: string;
   protected readonly baseUrl: string;
+  protected readonly isTestnet: boolean;
   /** Pre-imported CryptoKey for HMAC-SHA256 to avoid importKey overhead on every request. */
   protected readonly importedKeyPromise: Promise<CryptoKey>;
 
-  constructor(apiKey: string, apiSecret: string, baseUrl?: string) {
+  constructor(
+    apiKey: string,
+    apiSecret: string,
+    baseUrlOrOptions?: string | { baseUrl?: string; testnet?: boolean }
+  ) {
     if (!apiKey || !apiSecret) {
       throw new Error(
         `${this.constructor.name} API key and secret are required.`
@@ -29,7 +39,12 @@ export abstract class BaseExchangeClient {
     }
     this.apiKey = apiKey;
     this.apiSecret = apiSecret;
-    this.baseUrl = baseUrl ?? this.getDefaultBaseUrl();
+    const options =
+      typeof baseUrlOrOptions === "string"
+        ? { baseUrl: baseUrlOrOptions }
+        : (baseUrlOrOptions ?? {});
+    this.isTestnet = options.testnet ?? false;
+    this.baseUrl = options.baseUrl ?? this.getDefaultBaseUrl();
 
     const encoder = new TextEncoder();
     this.importedKeyPromise = crypto.subtle.importKey(

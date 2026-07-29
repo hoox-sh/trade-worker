@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { DurableObject } from "cloudflare:workers";
 import { createLogger } from "@jango-blockchained/hoox-shared/middleware";
 import type { Env } from "./index";
@@ -203,6 +208,12 @@ export class ExchangeConnectionManager extends DurableObject {
     payload: WebhookPayload,
     env: Env
   ): Promise<TradeExecutionResult> {
+    // Test trading uses dedicated REST testnet hosts. Live WS adapters
+    // always target mainnet — never place a test order over a live socket.
+    if (payload.test === true) {
+      return this.executeTradeRest(payload, env);
+    }
+
     // Try the WS path first if the connection is ready.
     if (this.ready && this.ws && this.adapter) {
       try {
@@ -237,18 +248,28 @@ export class ExchangeConnectionManager extends DurableObject {
   ): Promise<TradeExecutionResult> {
     logger.info(`Executing trade via REST for ${this.exchange}`, { payload });
 
-    const apiKey = readApiKey(env, this.exchange);
-    const apiSecret = readApiSecret(env, this.exchange);
-
-    if (!apiKey || !apiSecret) {
+    const testnet = payload.test === true;
+    if (testnet && this.exchange === "mexc") {
       return {
         success: false,
-        error: `Missing ${this.exchange} credentials`,
+        error:
+          "TEST_TRADING_UNSUPPORTED: mexc does not support test/sandbox trading via API",
         status: 400,
       };
     }
 
-    const client = this.createRestClient(apiKey, apiSecret);
+    const apiKey = readApiKey(env, this.exchange, testnet);
+    const apiSecret = readApiSecret(env, this.exchange, testnet);
+
+    if (!apiKey || !apiSecret) {
+      return {
+        success: false,
+        error: `Missing ${this.exchange}${testnet ? " testnet" : ""} credentials`,
+        status: 400,
+      };
+    }
+
+    const client = this.createRestClient(apiKey, apiSecret, { testnet });
     if (!client) {
       return {
         success: false,
@@ -297,15 +318,16 @@ export class ExchangeConnectionManager extends DurableObject {
    */
   private createRestClient(
     apiKey: string,
-    apiSecret: string
+    apiSecret: string,
+    options?: { testnet?: boolean }
   ): BinanceClient | BybitClient | MexcClient | null {
     switch (this.exchange) {
       case "binance":
-        return new BinanceClient(apiKey, apiSecret);
+        return new BinanceClient(apiKey, apiSecret, options);
       case "bybit":
-        return new BybitClient(apiKey, apiSecret);
+        return new BybitClient(apiKey, apiSecret, options);
       case "mexc":
-        return new MexcClient(apiKey, apiSecret);
+        return new MexcClient(apiKey, apiSecret, options);
       default:
         return null;
     }
@@ -314,9 +336,30 @@ export class ExchangeConnectionManager extends DurableObject {
 
 /**
  * Read the API key env binding for the given exchange.
+ * When testnet is true, prefer dedicated testnet bindings.
  * Returns "" if the binding is missing.
  */
-function readApiKey(env: Env, exchange: string): string {
+function readApiKey(env: Env, exchange: string, testnet = false): string {
+  if (testnet) {
+    switch (exchange) {
+      case "bybit":
+        return (
+          env.BYBIT_TESTNET_KEY_BINDING ||
+          env.BYBIT_KEY_BINDING ||
+          ""
+        );
+      case "binance":
+        return (
+          env.BINANCE_TESTNET_KEY_BINDING ||
+          env.BINANCE_KEY_BINDING ||
+          ""
+        );
+      case "mexc":
+        return env.MEXC_KEY_BINDING ?? "";
+      default:
+        return "";
+    }
+  }
   switch (exchange) {
     case "bybit":
       return env.BYBIT_KEY_BINDING ?? "";
@@ -330,9 +373,30 @@ function readApiKey(env: Env, exchange: string): string {
 
 /**
  * Read the API secret env binding for the given exchange.
+ * When testnet is true, prefer dedicated testnet bindings.
  * Returns "" if the binding is missing.
  */
-function readApiSecret(env: Env, exchange: string): string {
+function readApiSecret(env: Env, exchange: string, testnet = false): string {
+  if (testnet) {
+    switch (exchange) {
+      case "bybit":
+        return (
+          env.BYBIT_TESTNET_SECRET_BINDING ||
+          env.BYBIT_SECRET_BINDING ||
+          ""
+        );
+      case "binance":
+        return (
+          env.BINANCE_TESTNET_SECRET_BINDING ||
+          env.BINANCE_SECRET_BINDING ||
+          ""
+        );
+      case "mexc":
+        return env.MEXC_SECRET_BINDING ?? "";
+      default:
+        return "";
+    }
+  }
   switch (exchange) {
     case "bybit":
       return env.BYBIT_SECRET_BINDING ?? "";

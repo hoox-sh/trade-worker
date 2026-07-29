@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import {
   describe,
   expect,
@@ -115,6 +120,16 @@ describe("MexcClient (V1 Futures)", () => {
     expect(() => new MexcClient(API_KEY, "")).toThrow(
       "MexcClient API key and secret are required."
     );
+  });
+
+  test("supportsTestTrading is false", () => {
+    expect(MexcClient.supportsTestTrading).toBe(false);
+  });
+
+  test("should reject construction with testnet option", () => {
+    expect(
+      () => new MexcClient(API_KEY, API_SECRET, { testnet: true })
+    ).toThrow("TEST_TRADING_UNSUPPORTED");
   });
 
   // --- Signing Logic Test ---

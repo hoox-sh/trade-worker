@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // workers/trade-worker/test/exchange-connection-manager-request.test.ts
 //
 // Tests for the WS request/response correlation logic in

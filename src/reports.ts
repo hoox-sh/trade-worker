@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import type { WebhookPayload } from "@jango-blockchained/hoox-shared/types";
 import {
   createLogger,

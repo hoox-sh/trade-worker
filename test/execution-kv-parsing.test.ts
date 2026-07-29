@@ -1,4 +1,9 @@
 /**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/**
  * Focused tests for the S-1 + C-8 fixes from the 2026-06-27 worker audit.
  *
  * These tests live in a separate file (instead of test/index.test.ts)

@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { MexcClient } from "./mexc-client";
 import { BinanceClient } from "./binance-client";
 import { BybitClient } from "./bybit-client";
@@ -6,12 +11,18 @@ import type { IExchangeClient } from "./execution";
 import type { WebhookPayload } from "@jango-blockchained/hoox-shared/types";
 import type {
   IExchangeProvider,
+  ClientCreateOptions,
   ExchangeRouter as IExchangeRouter,
 } from "@jango-blockchained/hoox-shared/exchange-client";
 import { ExchangeRouter as BaseRouter } from "@jango-blockchained/hoox-shared/exchange-client";
 import { KVKeys } from "@jango-blockchained/hoox-shared/kvKeys";
 import { createLogger } from "@jango-blockchained/hoox-shared/middleware";
 import { toError } from "@jango-blockchained/hoox-shared/errors";
+import {
+  hasExchangeCredentials,
+  resolveExchangeCredentials,
+  type CredentialSource,
+} from "./exchange-credentials";
 
 const logger = createLogger({
   service: "trade-worker",
@@ -25,63 +36,128 @@ export type { IExchangeProvider };
 export type { Env };
 
 /**
+ * Which exchanges expose a public testnet/sandbox trading API.
+ * Used for early validation and documentation.
+ */
+export const EXCHANGE_TEST_SUPPORT: Record<string, boolean> = {
+  binance: BinanceClient.supportsTestTrading,
+  bybit: BybitClient.supportsTestTrading,
+  mexc: MexcClient.supportsTestTrading,
+};
+
+/**
  * Module-level factory functions for testability.
  * Use vi.spyOn(factories, "createBinanceClient") etc. in tests to inject mock clients.
  */
 export const factories = {
-  createBinanceClient(apiKey: string, apiSecret: string): IExchangeClient {
-    return new BinanceClient(apiKey, apiSecret);
+  createBinanceClient(
+    apiKey: string,
+    apiSecret: string,
+    options?: ClientCreateOptions
+  ): IExchangeClient {
+    return new BinanceClient(apiKey, apiSecret, options);
   },
-  createMexcClient(apiKey: string, apiSecret: string): IExchangeClient {
-    return new MexcClient(apiKey, apiSecret);
+  createMexcClient(
+    apiKey: string,
+    apiSecret: string,
+    options?: ClientCreateOptions
+  ): IExchangeClient {
+    return new MexcClient(apiKey, apiSecret, options);
   },
-  createBybitClient(apiKey: string, apiSecret: string): IExchangeClient {
-    return new BybitClient(apiKey, apiSecret);
+  createBybitClient(
+    apiKey: string,
+    apiSecret: string,
+    options?: ClientCreateOptions
+  ): IExchangeClient {
+    return new BybitClient(apiKey, apiSecret, options);
   },
 };
 
 // Provider type alias bound to trade-worker's types
 type TradeExchangeProvider = IExchangeProvider<IExchangeClient, Env>;
 
+function createClientForExchange(
+  exchange: string,
+  env: Env,
+  options?: ClientCreateOptions
+): IExchangeClient {
+  const testnet = options?.testnet === true;
+  const creds = resolveExchangeCredentials(exchange, env, testnet);
+  if (!creds) {
+    throw new Error(
+      testnet
+        ? `${exchange} testnet/live API secrets unavailable.`
+        : `${exchange} API secrets unavailable.`
+    );
+  }
+
+  switch (exchange.toLowerCase()) {
+    case "binance":
+      return factories.createBinanceClient(
+        creds.apiKey,
+        creds.apiSecret,
+        options
+      );
+    case "bybit":
+      return factories.createBybitClient(
+        creds.apiKey,
+        creds.apiSecret,
+        options
+      );
+    case "mexc":
+      return factories.createMexcClient(creds.apiKey, creds.apiSecret, options);
+    default:
+      throw new Error(`Unsupported exchange: ${exchange}`);
+  }
+}
+
 export class BinanceProvider implements TradeExchangeProvider {
   readonly name = "binance";
-  createClient(env: Env): IExchangeClient {
-    const apiKey = env.BINANCE_KEY_BINDING;
-    const apiSecret = env.BINANCE_SECRET_BINDING;
-    if (!apiKey || !apiSecret)
-      throw new Error("Binance API secrets unavailable.");
-    return factories.createBinanceClient(apiKey, apiSecret);
+  readonly supportsTestTrading = BinanceClient.supportsTestTrading;
+  createClient(env: Env, options?: ClientCreateOptions): IExchangeClient {
+    return createClientForExchange("binance", env, options);
   }
   hasCredentials(env: Env): boolean {
-    return !!(env.BINANCE_KEY_BINDING && env.BINANCE_SECRET_BINDING);
+    // Live or dedicated testnet keys count as "configured".
+    return hasExchangeCredentials("binance", env, false)
+      || hasExchangeCredentials("binance", env, true);
   }
 }
 
 export class MexcProvider implements TradeExchangeProvider {
   readonly name = "mexc";
-  createClient(env: Env): IExchangeClient {
-    const apiKey = env.MEXC_KEY_BINDING;
-    const apiSecret = env.MEXC_SECRET_BINDING;
-    if (!apiKey || !apiSecret) throw new Error("MEXC API secrets unavailable.");
-    return factories.createMexcClient(apiKey, apiSecret);
+  readonly supportsTestTrading = MexcClient.supportsTestTrading;
+  createClient(env: Env, options?: ClientCreateOptions): IExchangeClient {
+    return createClientForExchange("mexc", env, options);
   }
   hasCredentials(env: Env): boolean {
-    return !!(env.MEXC_KEY_BINDING && env.MEXC_SECRET_BINDING);
+    return hasExchangeCredentials("mexc", env, false);
   }
 }
 
 export class BybitProvider implements TradeExchangeProvider {
   readonly name = "bybit";
-  createClient(env: Env): IExchangeClient {
-    const apiKey = env.BYBIT_KEY_BINDING;
-    const apiSecret = env.BYBIT_SECRET_BINDING;
-    if (!apiKey || !apiSecret)
-      throw new Error("Bybit API secrets unavailable.");
-    return factories.createBybitClient(apiKey, apiSecret);
+  readonly supportsTestTrading = BybitClient.supportsTestTrading;
+  createClient(env: Env, options?: ClientCreateOptions): IExchangeClient {
+    return createClientForExchange("bybit", env, options);
   }
   hasCredentials(env: Env): boolean {
-    return !!(env.BYBIT_KEY_BINDING && env.BYBIT_SECRET_BINDING);
+    return hasExchangeCredentials("bybit", env, false)
+      || hasExchangeCredentials("bybit", env, true);
   }
+}
+
+export interface RouteResult {
+  exchange: string;
+  /**
+   * REST client. Omitted when `useWebsocketDO` is true so we skip
+   * CryptoKey import for the live WS path (DO builds its own client).
+   */
+  client?: IExchangeClient;
+  useWebsocketDO?: boolean;
+  testnet: boolean;
+  /** Which secret binding pair the REST client would use. */
+  credentialSource?: CredentialSource;
 }
 
 /**
@@ -104,16 +180,10 @@ export class ExchangeRouter implements Pick<
     this.baseRouter.registerProvider(provider);
   }
 
-  async route(
-    payload: WebhookPayload,
-    env: Env
-  ): Promise<{
-    exchange: string;
-    client: IExchangeClient;
-    useWebsocketDO?: boolean;
-  }> {
+  async route(payload: WebhookPayload, env: Env): Promise<RouteResult> {
     let exchange = payload.exchange.toLowerCase();
     let useWebsocketDO = false;
+    const testnet = payload.test === true;
 
     // Check KV for dynamic routing
     if (env.CONFIG_KV) {
@@ -148,7 +218,8 @@ export class ExchangeRouter implements Pick<
           throw new Error(`EXCHANGE_DISABLED: ${exchange} is disabled`);
         }
 
-        if (useWs === "true") {
+        // Testnet uses dedicated REST hosts; do not reuse live WS DO connections.
+        if (useWs === "true" && !testnet) {
           useWebsocketDO = true;
         }
       } catch (e) {
@@ -162,7 +233,40 @@ export class ExchangeRouter implements Pick<
       }
     }
 
-    const baseResult = this.baseRouter.route(exchange, env);
-    return { ...baseResult, useWebsocketDO };
+    if (testnet) {
+      if (EXCHANGE_TEST_SUPPORT[exchange] === false) {
+        throw new Error(
+          `TEST_TRADING_UNSUPPORTED: ${exchange} does not support test/sandbox trading via API`
+        );
+      }
+      logger.info("Test trading enabled for exchange", { exchange });
+    }
+
+    const creds = resolveExchangeCredentials(exchange, env, testnet);
+    if (!creds) {
+      throw new Error(
+        `API secret bindings not configured or accessible for ${exchange}`
+      );
+    }
+
+    // Live WS DO path: skip REST client construction (importKey + object).
+    // The DO creates its own client if it falls back to REST.
+    if (useWebsocketDO) {
+      return {
+        exchange,
+        useWebsocketDO: true,
+        testnet,
+        credentialSource: creds.source,
+      };
+    }
+
+    const client = createClientForExchange(exchange, env, { testnet });
+    return {
+      exchange,
+      client,
+      useWebsocketDO: false,
+      testnet,
+      credentialSource: creds.source,
+    };
   }
 }

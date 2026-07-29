@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // workers/trade-worker/test/wsAdapters/bybit.test.ts
 import { describe, test, expect } from "bun:test";
 import { BybitAdapter } from "../../src/wsAdapters/bybit";

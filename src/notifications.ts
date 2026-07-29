@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { createLogger } from "@jango-blockchained/hoox-shared/middleware";
 import { toError } from "@jango-blockchained/hoox-shared/errors";
 import {
@@ -85,10 +90,12 @@ export async function sendTradeNotification(
   env: NotificationsEnv,
   result: { success: boolean; error?: string; result?: unknown }
 ): Promise<void> {
+  const exchangeLabel =
+    trade.test === true ? `${trade.exchange} [TEST]` : trade.exchange;
   await sendTradeNotificationToTelegram(
     env,
     result,
-    trade.exchange,
+    exchangeLabel,
     trade.action,
     trade.quantity,
     trade.symbol,

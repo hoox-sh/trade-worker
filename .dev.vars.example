@@ -19,3 +19,10 @@ TELEGRAM_INTERNAL_KEY_BINDING=your_telegram_internal_key_here
 # BINANCE_SECRET_BINDING=your_binance_api_secret_here
 # BYBIT_KEY_BINDING=your_bybit_api_key_here
 # BYBIT_SECRET_BINDING=your_bybit_api_secret_here
+
+# Optional dedicated testnet keys (preferred when webhook has "test": true)
+# Falls back to live BINANCE_*/BYBIT_* bindings if unset.
+# BINANCE_TESTNET_KEY_BINDING=your_binance_testnet_api_key_here
+# BINANCE_TESTNET_SECRET_BINDING=your_binance_testnet_api_secret_here
+# BYBIT_TESTNET_KEY_BINDING=your_bybit_testnet_api_key_here
+# BYBIT_TESTNET_SECRET_BINDING=your_bybit_testnet_api_secret_here

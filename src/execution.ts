@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // workers/trade-worker/src/execution.ts
 // Core trade execution logic extracted from index.ts
 
@@ -40,8 +45,14 @@ export interface ExecutionEnv {
   MEXC_SECRET_BINDING?: string;
   BINANCE_KEY_BINDING?: string;
   BINANCE_SECRET_BINDING?: string;
+  /** Optional dedicated Binance Futures testnet key (preferred when test:true). */
+  BINANCE_TESTNET_KEY_BINDING?: string;
+  BINANCE_TESTNET_SECRET_BINDING?: string;
   BYBIT_KEY_BINDING?: string;
   BYBIT_SECRET_BINDING?: string;
+  /** Optional dedicated Bybit testnet key (preferred when test:true). */
+  BYBIT_TESTNET_KEY_BINDING?: string;
+  BYBIT_TESTNET_SECRET_BINDING?: string;
 }
 
 // Generic client interface (mirrored from index.ts to avoid circular dependency)
@@ -109,12 +120,18 @@ export async function updateD1TradeRecords(
 
   try {
     const tradeId = crypto.randomUUID();
-    const { action, symbol, quantity, price } = payload;
-    const tradeStatus = "EXECUTED";
+    const { action, symbol, quantity, price, test } = payload;
+    const isTest = test === true;
+    // Keep testnet fills out of the live ledger status vocabulary so
+    // reporting/agent paths can filter them without a schema migration.
+    const tradeStatus = isTest ? "TEST_EXECUTED" : "EXECUTED";
 
     const side = action.includes("LONG") ? "LONG" : "SHORT";
     const posStatus = action.startsWith("CLOSE") ? "CLOSED" : "OPEN";
-    const posId = `${routedExchange}-${symbol}-${side}`;
+    // Namespace position IDs so testnet opens never clobber live exposure.
+    const posId = isTest
+      ? `${routedExchange}-testnet-${symbol}-${side}`
+      : `${routedExchange}-${symbol}-${side}`;
 
     // Fail closed: require a D1 write key (scoped or legacy full key)
     if (!resolveInternalAuthKey(env, D1_WRITE_AUTH_KEY_FIELDS)) {
@@ -304,7 +321,9 @@ export async function executeTrade(
       price,
       orderType = "MARKET",
       leverage,
+      test,
     } = payload;
+    const testnet = test === true;
 
     let overriddenLeverage = leverage;
     let maxPositionSize: number | null = null;
@@ -395,18 +414,22 @@ export async function executeTrade(
     }
     // --- End Risk Management ---
 
-    let client: IExchangeClient;
+    let client: IExchangeClient | undefined;
     let routedExchange: string;
     let useWebsocketDO = false;
+    let credentialSource: "testnet" | "live" | undefined;
 
     try {
       const routeResult = await exchangeRouter.route(payload, env);
       client = routeResult.client;
       routedExchange = routeResult.exchange;
       useWebsocketDO = routeResult.useWebsocketDO || false;
+      credentialSource = routeResult.credentialSource;
     } catch (error: unknown) {
       const errorMsg = toError(error, `Failed to route exchange: ${exchange}`);
       logger.error(errorMsg);
+      // Unsupported test trading is a client error (400); other routing
+      // failures also stay 400 so callers can fix the payload/config.
       const result: TradeExecutionResult = {
         success: false,
         error: errorMsg,
@@ -422,9 +445,26 @@ export async function executeTrade(
       return result;
     }
 
+    if (testnet) {
+      if (credentialSource === "live") {
+        logger.warn(
+          "Test trading with live API key bindings against testnet hosts. Prefer BINANCE_TESTNET_* / BYBIT_TESTNET_* secrets.",
+          { exchange: routedExchange, symbol, action }
+        );
+      } else {
+        logger.info("Test trading with dedicated testnet API key bindings", {
+          exchange: routedExchange,
+          symbol,
+          action,
+        });
+      }
+    }
+
     let result: unknown;
 
-    if (useWebsocketDO && env.EXCHANGE_CONNECTION_MANAGER) {
+    // Test trades always use REST testnet endpoints — never the live WS DO.
+    // Live WS path: route() skips REST client construction (perf).
+    if (useWebsocketDO && !testnet && env.EXCHANGE_CONNECTION_MANAGER) {
       logger.info(`Routing trade to DO for ${routedExchange}`);
       const id = env.EXCHANGE_CONNECTION_MANAGER.idFromName(
         `exchange:${routedExchange}`
@@ -442,6 +482,11 @@ export async function executeTrade(
       }
       result = doResult.result;
     } else {
+      if (!client) {
+        throw new Error(
+          `No REST client available for ${routedExchange} (unexpected route result)`
+        );
+      }
       if (client.setLeverage && overriddenLeverage) {
         try {
           await client.setLeverage(symbol, overriddenLeverage);
@@ -507,7 +552,14 @@ export async function executeTrade(
     const latencyMs = Date.now() - startTime;
     ctx.waitUntil(
       trackAnalytics(env, "/track/trade", {
-        payload: { exchange: routedExchange, action, symbol, quantity, price },
+        payload: {
+          exchange: routedExchange,
+          action,
+          symbol,
+          quantity,
+          price,
+          test: testnet || undefined,
+        },
         result: { success: true },
         latencyMs,
       }).catch((err) =>
@@ -517,11 +569,12 @@ export async function executeTrade(
 
     // Send notification via telegram-worker after trade execution (non-blocking)
     if (env.TELEGRAM_SERVICE) {
+      const exchangeLabel = testnet ? `${routedExchange} [TEST]` : routedExchange;
       ctx.waitUntil(
         sendTradeNotificationToTelegram(
           env,
           result as { success?: boolean; result?: unknown; error?: string },
-          routedExchange,
+          exchangeLabel,
           action,
           quantity,
           symbol,
@@ -563,6 +616,7 @@ export async function executeTrade(
           symbol: payload.symbol,
           quantity: payload.quantity,
           price: payload.price,
+          test: payload.test === true ? true : undefined,
         },
         result: { success: false, error: errorMsg },
         latencyMs,

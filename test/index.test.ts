@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import {
   describe,
   it,
@@ -617,7 +622,8 @@ describe("Trade Worker Handlers", () => {
       // Check client init
       expect(routerFactories.createMexcClient).toHaveBeenCalledWith(
         "mexc-key",
-        "mexc-secret"
+        "mexc-secret",
+        { testnet: false }
       );
       expect(routerFactories.createBinanceClient).not.toHaveBeenCalled();
       expect(routerFactories.createBybitClient).not.toHaveBeenCalled();
@@ -720,7 +726,8 @@ describe("Trade Worker Handlers", () => {
 
       expect(routerFactories.createBinanceClient).toHaveBeenCalledWith(
         "binance-key",
-        "binance-secret"
+        "binance-secret",
+        { testnet: false }
       );
       expect(mockBinanceClient.openLong).toHaveBeenCalled();
       expect(routerFactories.createMexcClient).not.toHaveBeenCalled();

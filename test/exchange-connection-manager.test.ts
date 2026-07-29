@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // workers/trade-worker/test/exchange-connection-manager.test.ts
 //
 // Unit tests for the `ExchangeConnectionManager` Durable Object. The DO

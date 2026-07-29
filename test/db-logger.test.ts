@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { describe, expect, test, beforeEach, jest } from "bun:test";
 import { DbLogger, type IDbLogger } from "../src/db-logger";
 import type { R2Bucket } from "@cloudflare/workers-types";

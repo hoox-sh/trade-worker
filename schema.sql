@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS trades (
     quantity REAL,                   -- Size of the trade
     price REAL,                      -- Execution price
     leverage INTEGER,                -- Leverage used
-    status TEXT NOT NULL,            -- Status ('EXECUTED', 'FAILED', 'PENDING')
+    status TEXT NOT NULL,            -- Status ('EXECUTED', 'TEST_EXECUTED', 'FAILED', 'PENDING')
     error_message TEXT,              -- Any error message if failed
     raw_response TEXT,               -- JSON response from the exchange
     created_at INTEGER DEFAULT (unixepoch())

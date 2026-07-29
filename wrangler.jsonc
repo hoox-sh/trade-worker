@@ -34,6 +34,9 @@
     // wrangler secret put MEXC_KEY_BINDING && MEXC_SECRET_BINDING
     // wrangler secret put BINANCE_KEY_BINDING && BINANCE_SECRET_BINDING
     // wrangler secret put BYBIT_KEY_BINDING && BYBIT_SECRET_BINDING
+    // Optional dedicated testnet keys (used when payload.test === true):
+    // wrangler secret put BINANCE_TESTNET_KEY_BINDING && BINANCE_TESTNET_SECRET_BINDING
+    // wrangler secret put BYBIT_TESTNET_KEY_BINDING && BYBIT_TESTNET_SECRET_BINDING
     // wrangler secret put TELEGRAM_INTERNAL_KEY_BINDING
   },
   "services": [

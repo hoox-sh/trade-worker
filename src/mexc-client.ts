@@ -1,9 +1,15 @@
+/**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // workers/trade-worker/src/mexc-client.ts
 
 import { createLogger } from "@jango-blockchained/hoox-shared/middleware";
 import type { Logger } from "@jango-blockchained/hoox-shared/middleware";
 import {
   BaseExchangeClient,
+  type ExchangeClientOptions,
   type OrderResponse,
   type Position,
 } from "@jango-blockchained/hoox-shared/exchanges";
@@ -23,14 +29,34 @@ interface MexcErrorResponse {
 
 type MexcApiResponse<T> = MexcSuccessResponse<T> | MexcErrorResponse;
 
+/** MEXC contract (futures) V1 mainnet host. */
+export const MEXC_CONTRACT_BASE_URL =
+  "https://contract.mexc.com/api/v1/contract";
+
 /**
  * MEXC API client implementation.
+ *
+ * Note: MEXC does not offer a public API sandbox/testnet for automated
+ * trading (only a UI-only futures demo). Requests with `test: true` are
+ * rejected by the exchange router before this client is constructed.
  */
 export class MexcClient extends BaseExchangeClient {
+  /** MEXC has no public REST testnet for trading. */
+  static readonly supportsTestTrading = false;
+
   private readonly logger: Logger;
 
-  constructor(apiKey: string, apiSecret: string) {
-    super(apiKey, apiSecret);
+  constructor(
+    apiKey: string,
+    apiSecret: string,
+    options?: ExchangeClientOptions
+  ) {
+    if (options?.testnet) {
+      throw new Error(
+        "TEST_TRADING_UNSUPPORTED: mexc does not support test/sandbox trading via API"
+      );
+    }
+    super(apiKey, apiSecret, options);
     this.logger = createLogger({
       service: "trade-worker",
       module: "mexc-client",
@@ -42,7 +68,7 @@ export class MexcClient extends BaseExchangeClient {
   }
 
   protected getDefaultBaseUrl(): string {
-    return "https://contract.mexc.com/api/v1/contract"; // Use V1 futures API
+    return MEXC_CONTRACT_BASE_URL;
   }
 
   /**

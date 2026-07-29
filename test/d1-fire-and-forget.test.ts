@@ -1,4 +1,9 @@
 /**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/**
  * Focused tests for the trade-worker's D1-write fire-and-forget
  * change (2026-06-27 fastpath optimization).
  *

@@ -1,8 +1,14 @@
+/**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // workers/trade-worker/src/binance-client.ts
 
 import { createLogger } from "@jango-blockchained/hoox-shared/middleware";
 import {
   BaseExchangeClient,
+  type ExchangeClientOptions,
   type OrderResponse,
   type Position,
 } from "@jango-blockchained/hoox-shared/exchanges";
@@ -16,17 +22,30 @@ interface BinanceErrorResponse {
 // Define generic or specific success response types if known
 type BinanceApiResponse<T> = T | BinanceErrorResponse;
 
+/** Binance USDT-M Futures mainnet host. */
+export const BINANCE_FUTURES_BASE_URL = "https://fapi.binance.com";
+/** Binance USDT-M Futures testnet host (https://testnet.binancefuture.com). */
+export const BINANCE_FUTURES_TESTNET_BASE_URL =
+  "https://testnet.binancefuture.com";
+
 /**
  * Binance API client implementation.
  */
 export class BinanceClient extends BaseExchangeClient {
+  /** Binance Futures exposes a public testnet with separate API keys. */
+  static readonly supportsTestTrading = true;
+
   private logger = createLogger({
     service: "trade-worker",
     module: "binance-client",
   });
 
-  constructor(apiKey: string, apiSecret: string) {
-    super(apiKey, apiSecret);
+  constructor(
+    apiKey: string,
+    apiSecret: string,
+    options?: ExchangeClientOptions
+  ) {
+    super(apiKey, apiSecret, options);
   }
 
   protected getErrorMessagePrefix(): string {
@@ -34,7 +53,9 @@ export class BinanceClient extends BaseExchangeClient {
   }
 
   protected getDefaultBaseUrl(): string {
-    return "https://fapi.binance.com"; // Futures API
+    return this.isTestnet
+      ? BINANCE_FUTURES_TESTNET_BASE_URL
+      : BINANCE_FUTURES_BASE_URL;
   }
 
   /**

@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import {
   describe,
   expect,
@@ -113,6 +118,30 @@ describe("BinanceClient", () => {
     expect(() => new BinanceClient(API_KEY, "")).toThrow(
       "BinanceClient API key and secret are required."
     );
+  });
+
+  test("should use futures mainnet base URL by default", () => {
+    const c = client as unknown as { baseUrl: string; isTestnet: boolean };
+    expect(c.baseUrl).toBe(BASE_URL);
+    expect(c.isTestnet).toBe(false);
+  });
+
+  test("should use futures testnet base URL when testnet option is set", () => {
+    const testClient = new BinanceClient(API_KEY, API_SECRET, {
+      testnet: true,
+    });
+    const c = testClient as unknown as {
+      baseUrl: string;
+      isTestnet: boolean;
+      testnet: boolean;
+    };
+    expect(c.baseUrl).toBe("https://testnet.binancefuture.com");
+    expect(c.isTestnet).toBe(true);
+    expect(c.testnet).toBe(true);
+  });
+
+  test("supportsTestTrading is true", () => {
+    expect(BinanceClient.supportsTestTrading).toBe(true);
   });
 
   // --- Signing Logic Test ---

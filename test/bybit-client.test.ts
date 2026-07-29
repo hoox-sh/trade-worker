@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import {
   describe,
   expect,
@@ -118,6 +123,23 @@ describe("BybitClient (V5)", () => {
     expect(() => new BybitClient(API_KEY, "")).toThrow(
       "BybitClient API key and secret are required."
     );
+  });
+
+  test("should use mainnet base URL by default", () => {
+    const c = client as unknown as { baseUrl: string; isTestnet: boolean };
+    expect(c.baseUrl).toBe(BASE_URL);
+    expect(c.isTestnet).toBe(false);
+  });
+
+  test("should use testnet base URL when testnet option is set", () => {
+    const testClient = new BybitClient(API_KEY, API_SECRET, { testnet: true });
+    const c = testClient as unknown as { baseUrl: string; isTestnet: boolean };
+    expect(c.baseUrl).toBe("https://api-testnet.bybit.com");
+    expect(c.isTestnet).toBe(true);
+  });
+
+  test("supportsTestTrading is true", () => {
+    expect(BybitClient.supportsTestTrading).toBe(true);
   });
 
   // --- Signing Logic Test ---

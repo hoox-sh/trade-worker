@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 import { DbLogger } from "./db-logger";
 
 import {
@@ -48,6 +53,11 @@ export { ExchangeConnectionManager };
 
 export interface Env extends Cloudflare.Env {
   EXCHANGE_CONNECTION_MANAGER: DurableObjectNamespace<ExchangeConnectionManager>;
+  /** Optional dedicated testnet API keys (preferred when payload.test is true). */
+  BINANCE_TESTNET_KEY_BINDING?: string;
+  BINANCE_TESTNET_SECRET_BINDING?: string;
+  BYBIT_TESTNET_KEY_BINDING?: string;
+  BYBIT_TESTNET_SECRET_BINDING?: string;
 }
 
 /**
@@ -151,6 +161,7 @@ async function executeTradeFromQueue(
       quantity: trade.quantity,
       price: trade.price,
       leverage: trade.leverage,
+      test: trade.test,
     };
 
     const dbLogger = factories.createDbLogger(env as ExecutionEnv);
@@ -305,13 +316,15 @@ export default {
         if (!result.success) {
           throw new Error(result.error || "Trade execution failed");
         }
-        await sendTradeNotification(trade, env, result);
+        // Success notifications are already sent inside executeTrade
+        // (with [TEST] labeling when applicable). Do not double-notify.
       },
       onRetry: (_trade, _attemptNumber, _errorMsg, _delaySeconds) => {
         // Logging is handled by createQueueHandler internally
       },
       onDLQ: async (trade, _attemptNumber, errorMsg) => {
         await logFailedTrade(trade, errorMsg, env);
+        // Failure path never reached executeTrade success notify — alert once.
         await sendTradeNotification(trade, env, {
           success: false,
           error: errorMsg,

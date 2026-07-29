@@ -1,3 +1,8 @@
+/**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // workers/trade-worker/test/wsAdapters/adapters.test.ts
 import { describe, test, expect } from "bun:test";
 import { getAdapter } from "../../src/wsAdapters/adapters";

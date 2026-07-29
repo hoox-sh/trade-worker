@@ -1,9 +1,15 @@
+/**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // workers/trade-worker/src/bybit-client.ts
 
 import { createLogger } from "@jango-blockchained/hoox-shared/middleware";
 import type { Logger } from "@jango-blockchained/hoox-shared/middleware";
 import {
   BaseExchangeClient,
+  type ExchangeClientOptions,
   type OrderResponse,
   type Position,
 } from "@jango-blockchained/hoox-shared/exchanges";
@@ -27,15 +33,27 @@ interface BybitErrorResponse extends BybitBaseResponse {
 
 type BybitApiResponse<T> = BybitSuccessResponse<T> | BybitErrorResponse;
 
+/** Bybit V5 mainnet host. */
+export const BYBIT_MAINNET_BASE_URL = "https://api.bybit.com";
+/** Bybit V5 testnet host. */
+export const BYBIT_TESTNET_BASE_URL = "https://api-testnet.bybit.com";
+
 /**
  * Bybit API V5 client implementation.
  */
 export class BybitClient extends BaseExchangeClient {
+  /** Bybit exposes a public testnet with separate API keys. */
+  static readonly supportsTestTrading = true;
+
   private readonly recvWindow: number = 5000; // Bybit specific recv_window
   private readonly logger: Logger;
 
-  constructor(apiKey: string, apiSecret: string) {
-    super(apiKey, apiSecret);
+  constructor(
+    apiKey: string,
+    apiSecret: string,
+    options?: ExchangeClientOptions
+  ) {
+    super(apiKey, apiSecret, options);
     this.logger = createLogger({
       service: "trade-worker",
       module: "bybit-client",
@@ -47,7 +65,7 @@ export class BybitClient extends BaseExchangeClient {
   }
 
   protected getDefaultBaseUrl(): string {
-    return "https://api.bybit.com";
+    return this.isTestnet ? BYBIT_TESTNET_BASE_URL : BYBIT_MAINNET_BASE_URL;
   }
 
   /**

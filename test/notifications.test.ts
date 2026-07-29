@@ -1,4 +1,9 @@
 /**
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/**
  * Tests for the trade-worker notifications module.
  * Covers sendTradeNotificationToTelegram and sendTradeNotification.
  */
@@ -173,5 +178,35 @@ describe("sendTradeNotification", () => {
     );
 
     expect(mockEnv.TELEGRAM_SERVICE.fetch).toHaveBeenCalled();
+  });
+
+  test("labels exchange with [TEST] when trade.test is true", async () => {
+    const mockFetch = mock(() => new Response(null, { status: 200 }));
+    const mockEnv = {
+      TELEGRAM_SERVICE: { fetch: mockFetch },
+      TELEGRAM_INTERNAL_KEY_BINDING: "key",
+    };
+    const { sendTradeNotification } = await import("../src/notifications");
+
+    await sendTradeNotification(
+      {
+        requestId: "req-2",
+        exchange: "binance",
+        action: "LONG",
+        symbol: "BTCUSDT",
+        quantity: 0.01,
+        test: true,
+        queuedAt: new Date().toISOString(),
+      },
+      mockEnv as any,
+      { success: false, error: "dlq" }
+    );
+
+    expect(mockFetch).toHaveBeenCalled();
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as unknown as [string, RequestInit])[1]
+        .body as string
+    );
+    expect(body.message).toContain("binance [TEST]");
   });
 });
