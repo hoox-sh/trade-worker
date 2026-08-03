@@ -1,7 +1,7 @@
 {
   "name": "trade-worker",
   "version": "1.0.0",
-  "description": "Trade execution service for cryptocurrency exchanges",
+  "description": "HOOX multi-exchange execution worker: Binance, Bybit, and MEXC order routing, queue consumers, D1 fills, analytics, and telegram confirmations.",
   "license": "Apache-2.0",
   "main": "src/index.ts",
   "type": "module",
@@ -23,5 +23,9 @@
     "typescript": "^6.0.3",
     "wrangler": "^4.95.0"
   },
-  "author": "jango-blockchained (hoox-sh)"
+  "author": "jango-blockchained (hoox-sh)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hoox-sh/trade-worker.git"
+  }
 }
