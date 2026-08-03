@@ -1,18 +1,18 @@
 /**
- * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained (hoox-sh)
  * SPDX-License-Identifier: Apache-2.0
  */
 
 // workers/trade-worker/src/mexc-client.ts
 
-import { createLogger } from "@jango-blockchained/hoox-shared/middleware";
-import type { Logger } from "@jango-blockchained/hoox-shared/middleware";
+import { createLogger } from "@hoox-sh/hoox-shared/middleware";
+import type { Logger } from "@hoox-sh/hoox-shared/middleware";
 import {
   BaseExchangeClient,
   type ExchangeClientOptions,
   type OrderResponse,
   type Position,
-} from "@jango-blockchained/hoox-shared/exchanges";
+} from "@hoox-sh/hoox-shared/exchanges";
 
 // Define interfaces for MEXC API responses (adjust based on actual API)
 interface MexcSuccessResponse<T> {

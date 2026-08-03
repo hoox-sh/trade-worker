@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained (hoox-sh)
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,30 +9,30 @@ import {
   Errors,
   createJsonResponse,
   toError,
-} from "@jango-blockchained/hoox-shared/errors";
+} from "@hoox-sh/hoox-shared/errors";
 import {
   createLogger,
   withRequestLog,
   validateJson,
   requireInternalAuth,
   type InternalAuthEnv,
-} from "@jango-blockchained/hoox-shared/middleware";
-import { createRouter } from "@jango-blockchained/hoox-shared/router";
-import { createQueueHandler } from "@jango-blockchained/hoox-shared/queue-handler";
-import { TradeQueueMessageSchema } from "@jango-blockchained/hoox-shared";
+} from "@hoox-sh/hoox-shared/middleware";
+import { createRouter } from "@hoox-sh/hoox-shared/router";
+import { createQueueHandler } from "@hoox-sh/hoox-shared/queue-handler";
+import { TradeQueueMessageSchema } from "@hoox-sh/hoox-shared";
 import {
   WebhookPayload,
   WebhookPayloadSchema,
   ProcessRequestBody,
-} from "@jango-blockchained/hoox-shared/types";
-import { trackAnalytics } from "@jango-blockchained/hoox-shared/analytics";
-import { healthCheck } from "@jango-blockchained/hoox-shared/health";
+} from "@hoox-sh/hoox-shared/types";
+import { trackAnalytics } from "@hoox-sh/hoox-shared/analytics";
+import { healthCheck } from "@hoox-sh/hoox-shared/health";
 import {
   authenticatedServiceFetch,
   D1_WRITE_AUTH_KEY_FIELDS,
   TRADE_EXECUTE_AUTH_KEY_FIELDS,
   resolveInternalAuthKey,
-} from "@jango-blockchained/hoox-shared/service-bindings";
+} from "@hoox-sh/hoox-shared/service-bindings";
 import {
   executeTrade,
   type ExecutionEnv,

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained (hoox-sh)
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -8,16 +8,16 @@ import { BinanceClient } from "./binance-client";
 import { BybitClient } from "./bybit-client";
 import type { Env } from "./index";
 import type { IExchangeClient } from "./execution";
-import type { WebhookPayload } from "@jango-blockchained/hoox-shared/types";
+import type { WebhookPayload } from "@hoox-sh/hoox-shared/types";
 import type {
   IExchangeProvider,
   ClientCreateOptions,
   ExchangeRouter as IExchangeRouter,
-} from "@jango-blockchained/hoox-shared/exchange-client";
-import { ExchangeRouter as BaseRouter } from "@jango-blockchained/hoox-shared/exchange-client";
-import { KVKeys } from "@jango-blockchained/hoox-shared/kvKeys";
-import { createLogger } from "@jango-blockchained/hoox-shared/middleware";
-import { toError } from "@jango-blockchained/hoox-shared/errors";
+} from "@hoox-sh/hoox-shared/exchange-client";
+import { ExchangeRouter as BaseRouter } from "@hoox-sh/hoox-shared/exchange-client";
+import { KVKeys } from "@hoox-sh/hoox-shared/kvKeys";
+import { createLogger } from "@hoox-sh/hoox-shared/middleware";
+import { toError } from "@hoox-sh/hoox-shared/errors";
 import {
   hasExchangeCredentials,
   resolveExchangeCredentials,

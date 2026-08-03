@@ -1,16 +1,16 @@
 /**
- * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained (hoox-sh)
  * SPDX-License-Identifier: Apache-2.0
  */
 
 import {
   createLogger,
   requireInternalAuth,
-} from "@jango-blockchained/hoox-shared/middleware";
+} from "@hoox-sh/hoox-shared/middleware";
 import {
   createJsonResponse,
   toError,
-} from "@jango-blockchained/hoox-shared/errors";
+} from "@hoox-sh/hoox-shared/errors";
 import {
   authenticatedServiceFetch,
   D1_READ_AUTH_KEY_FIELDS,
@@ -18,7 +18,7 @@ import {
   TRADE_EXECUTE_AUTH_KEY_FIELDS,
   TRADE_READ_AUTH_KEY_FIELDS,
   resolveInternalAuthKey,
-} from "@jango-blockchained/hoox-shared/service-bindings";
+} from "@hoox-sh/hoox-shared/service-bindings";
 
 const logger = createLogger({ service: "trade-worker", module: "signals" });
 

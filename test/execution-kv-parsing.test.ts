@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained (hoox-sh)
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -21,7 +21,7 @@
  */
 
 import { describe, expect, it, jest, beforeEach } from "bun:test";
-import { KVKeys } from "@jango-blockchained/hoox-shared/kvKeys";
+import { KVKeys } from "@hoox-sh/hoox-shared/kvKeys";
 
 // We don't import executeTrade directly because it has many transitive
 // dependencies. Instead, we verify the audit-relevant invariants by

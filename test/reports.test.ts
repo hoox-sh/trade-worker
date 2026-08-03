@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained (hoox-sh)
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -13,7 +13,7 @@ import {
   afterEach,
 } from "bun:test";
 import { saveReportToR2, handleGetReportRequest } from "../src/reports";
-import type { WebhookPayload } from "@jango-blockchained/hoox-shared/types";
+import type { WebhookPayload } from "@hoox-sh/hoox-shared/types";
 
 // ============================================================================
 // HELPERS

@@ -15,7 +15,7 @@
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
-    "@jango-blockchained/hoox-shared": "workspace:*"
+    "@hoox-sh/hoox-shared": "workspace:*"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260708.1",
@@ -23,5 +23,5 @@
     "typescript": "^6.0.3",
     "wrangler": "^4.95.0"
   },
-  "author": "jango-blockchained"
+  "author": "jango-blockchained (hoox-sh)"
 }

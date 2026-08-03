@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained (hoox-sh)
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,15 +10,15 @@ import {
   authenticatedServiceFetch,
   D1_WRITE_AUTH_KEY_FIELDS,
   resolveInternalAuthKey,
-} from "@jango-blockchained/hoox-shared/service-bindings";
+} from "@hoox-sh/hoox-shared/service-bindings";
 import {
   createJsonResponse,
   toError,
-} from "@jango-blockchained/hoox-shared/errors";
-import { createLogger } from "@jango-blockchained/hoox-shared/middleware";
-import type { WebhookPayload } from "@jango-blockchained/hoox-shared/types";
-import { trackAnalytics } from "@jango-blockchained/hoox-shared/analytics";
-import { KVKeys } from "@jango-blockchained/hoox-shared/kvKeys";
+} from "@hoox-sh/hoox-shared/errors";
+import { createLogger } from "@hoox-sh/hoox-shared/middleware";
+import type { WebhookPayload } from "@hoox-sh/hoox-shared/types";
+import { trackAnalytics } from "@hoox-sh/hoox-shared/analytics";
+import { KVKeys } from "@hoox-sh/hoox-shared/kvKeys";
 import type { IDbLogger } from "./db-logger";
 import { ExchangeRouter, type Env } from "./exchange-router";
 import { sendTradeNotificationToTelegram } from "./notifications";
@@ -79,7 +79,7 @@ export interface IExchangeClient {
 // because each exchange (MEXC, Bybit, Binance) returns a different response
 // shape from its respective REST API. The runtime type is exchange-specific
 // (see mexc-client.ts, bybit-client.ts, binance-client.ts). The base class
-// in @jango-blockchained/hoox-shared/exchanges uses OrderResponse for
+// in @hoox-sh/hoox-shared/exchanges uses OrderResponse for
 // `executeTrade` and `Position[]` for `getPositions`.
 
 interface ValidationResult {

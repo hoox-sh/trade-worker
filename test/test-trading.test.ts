@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained (hoox-sh)
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -16,7 +16,7 @@ import {
   BybitProvider,
   MexcProvider,
 } from "../src/exchange-router";
-import type { WebhookPayload } from "@jango-blockchained/hoox-shared/types";
+import type { WebhookPayload } from "@hoox-sh/hoox-shared/types";
 
 describe("EXCHANGE_TEST_SUPPORT", () => {
   it("marks binance and bybit as supporting test trading", () => {

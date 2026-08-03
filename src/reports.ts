@@ -1,16 +1,16 @@
 /**
- * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained (hoox-sh)
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { WebhookPayload } from "@jango-blockchained/hoox-shared/types";
+import type { WebhookPayload } from "@hoox-sh/hoox-shared/types";
 import {
   createLogger,
   requireInternalAuth,
   type InternalAuthEnv,
-} from "@jango-blockchained/hoox-shared/middleware";
-import { TRADE_READ_AUTH_KEY_FIELDS } from "@jango-blockchained/hoox-shared/service-bindings";
-import { toError } from "@jango-blockchained/hoox-shared/errors";
+} from "@hoox-sh/hoox-shared/middleware";
+import { TRADE_READ_AUTH_KEY_FIELDS } from "@hoox-sh/hoox-shared/service-bindings";
+import { toError } from "@hoox-sh/hoox-shared/errors";
 
 const logger = createLogger({ service: "trade-worker", module: "reports" });
 

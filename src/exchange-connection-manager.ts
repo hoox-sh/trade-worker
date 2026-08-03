@@ -1,15 +1,15 @@
 /**
- * Copyright (c) 2026 HOOX · HOOX · jango-blockchained
+ * Copyright (c) 2026 HOOX · HOOX · jango-blockchained (hoox-sh)
  * SPDX-License-Identifier: Apache-2.0
  */
 
 import { DurableObject } from "cloudflare:workers";
-import { createLogger } from "@jango-blockchained/hoox-shared/middleware";
+import { createLogger } from "@hoox-sh/hoox-shared/middleware";
 import type { Env } from "./index";
 import { BinanceClient } from "./binance-client";
 import { BybitClient } from "./bybit-client";
 import { MexcClient } from "./mexc-client";
-import type { WebhookPayload } from "@jango-blockchained/hoox-shared/types";
+import type { WebhookPayload } from "@hoox-sh/hoox-shared/types";
 import type { TradeExecutionResult } from "./execution";
 import { getAdapter } from "./wsAdapters/adapters";
 import type { IWsAdapter } from "./wsAdapters/types";
