@@ -126,6 +126,8 @@ export const factories = {
 // --- Constants ---
 const MAX_RETRIES = 5;
 const BACKOFF_DELAYS = [0, 30, 60, 300, 900]; // 0s, 30s, 1m, 5m, 15m
+/** Hard cap for trade JSON bodies (abuse / DoS protection). */
+const MAX_JSON_BODY_BYTES = 256 * 1024; // 256 KiB
 
 const PROCESS_ENDPOINT = "/process"; // For legacy/direct calls with internal key
 const WEBHOOK_ENDPOINT = "/webhook"; // For calls from hoox via Service Binding
@@ -144,6 +146,97 @@ function requireTradeExecuteAuth(request: Request, env: Env): Response | null {
     env as unknown as InternalAuthEnv,
     TRADE_EXECUTE_AUTH_KEY_FIELDS
   );
+}
+
+/**
+ * Early reject oversized bodies via Content-Length when present.
+ * Defense-in-depth for public-ish internal paths behind the gateway.
+ */
+function checkJsonBodySize(request: Request): Response | null {
+  const contentLength = request.headers.get("Content-Length");
+  if (!contentLength) return null;
+  const size = parseInt(contentLength, 10);
+  if (!Number.isFinite(size) || size < 0) {
+    return Errors.badRequest("Invalid Content-Length");
+  }
+  if (size > MAX_JSON_BODY_BYTES) {
+    return Errors.badRequest("Request body too large (max 256KB)");
+  }
+  return null;
+}
+
+/**
+ * Parse JSON body with a hard byte cap (does not trust Content-Length alone)
+ * and return 400 on malformed JSON (not 500).
+ */
+async function parseJsonBody(
+  request: Request
+): Promise<
+  { ok: true; value: unknown } | { ok: false; response: Response }
+> {
+  const sizeError = checkJsonBodySize(request);
+  if (sizeError) return { ok: false, response: sizeError };
+
+  const reader = request.body?.getReader();
+  if (!reader) {
+    return {
+      ok: false,
+      response: Errors.badRequest("Empty request body"),
+    };
+  }
+
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > MAX_JSON_BODY_BYTES) {
+        try {
+          await reader.cancel();
+        } catch {
+          /* ignore cancel errors */
+        }
+        return {
+          ok: false,
+          response: Errors.badRequest("Request body too large (max 256KB)"),
+        };
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return {
+      ok: false,
+      response: Errors.badRequest("Failed to read request body"),
+    };
+  }
+
+  if (total === 0) {
+    return {
+      ok: false,
+      response: Errors.badRequest("Empty request body"),
+    };
+  }
+
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  try {
+    const text = new TextDecoder("utf-8", { fatal: false }).decode(merged);
+    const value = JSON.parse(text) as unknown;
+    return { ok: true, value };
+  } catch {
+    return {
+      ok: false,
+      response: Errors.badRequest("Invalid JSON payload"),
+    };
+  }
 }
 
 // --- Queue Consumer Helper Functions ---
@@ -385,10 +478,40 @@ async function handleWebhookRequest(
       return authError;
     }
 
-    // Parse body after auth check
-    const payload: WebhookPayload = await request.json();
+    // Parse body after auth check (400 on bad JSON / oversized body)
+    const parsed = await parseJsonBody(request);
+    if (!parsed.ok) {
+      try {
+        dbLogId = await dbLogger.logRequest(
+          request,
+          "[invalid json or oversized body]",
+          ctx
+        );
+        await dbLogger.logResponse(
+          dbLogId,
+          parsed.response,
+          null,
+          startTime,
+          ctx
+        );
+      } catch {
+        // Ignore logging failures
+      }
+      return parsed.response;
+    }
+    const payload = parsed.value as WebhookPayload;
     logger.info(`Processing webhook request ID: ${incomingRequestId}`);
-    logger.debug("Received webhook payload", { payload });
+    // Avoid logging full payloads (may carry unexpected secrets); summary only.
+    if (payload && typeof payload === "object") {
+      const p = payload as Record<string, unknown>;
+      logger.debug("Received webhook payload summary", {
+        exchange: p.exchange,
+        action: p.action,
+        symbol: p.symbol,
+        test: p.test === true,
+        probe: p.probe === true,
+      });
+    }
 
     // Assuming logRequest can handle the payload directly and returns a number ID
     // Might need adjustment based on DbLogger implementation
@@ -535,14 +658,38 @@ async function handleProcessRequest(
       return authError;
     }
 
-    // Parse body after auth check
-    const data: TradeProcessRequestBody = await request.json();
+    // Parse body after auth check (400 on bad JSON / oversized body)
+    const parsed = await parseJsonBody(request);
+    if (!parsed.ok) {
+      try {
+        dbLogId = await dbLogger.logRequest(
+          request,
+          "[invalid json or oversized body]",
+          ctx
+        );
+        await dbLogger.logResponse(
+          dbLogId,
+          parsed.response,
+          null,
+          startTime,
+          ctx
+        );
+      } catch {
+        // Ignore logging failures
+      }
+      return parsed.response;
+    }
+    const data = parsed.value as TradeProcessRequestBody;
     incomingRequestId = data?.requestId;
 
     logger.info(`Processing /process request ID: ${incomingRequestId}`);
-    logger.info("Received standardized request", { data });
+    // Do not log full body (may include legacy internalAuthKey); summary only.
+    logger.debug("Received standardized request summary", {
+      requestId: incomingRequestId,
+      hasPayload: !!data?.payload,
+    });
 
-    // Log the request
+    // Log the request (DbLogger redacts nested secrets before R2 write)
     dbLogId = await dbLogger.logRequest(request, data, ctx);
 
     const payload = data?.payload;

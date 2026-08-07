@@ -14,6 +14,10 @@ import { toError } from "@hoox-sh/hoox-shared/errors";
 
 const logger = createLogger({ service: "trade-worker", module: "reports" });
 
+/** All trade reports are written under this prefix — reads are restricted to it. */
+export const REPORT_KEY_PREFIX = "trade-reports/";
+const MAX_REPORT_KEY_LENGTH = 512;
+
 // --- Type Definitions ---
 
 /**
@@ -23,6 +27,39 @@ const logger = createLogger({ service: "trade-worker", module: "reports" });
 export interface ReportsEnv {
   REPORTS_BUCKET?: R2Bucket;
   INTERNAL_KEY_BINDING?: string;
+}
+
+// --- Helpers ---
+
+/**
+ * Sanitize a single path segment for R2 object keys (exchange / symbol / id).
+ * Strips path separators, parent-dir markers, and control characters so payload
+ * fields cannot escape the trade-reports/ namespace.
+ * Accepts non-strings (e.g. numeric log ids from older call sites).
+ */
+export function sanitizeReportPathSegment(
+  segment: string | number | null | undefined
+): string {
+  const raw = String(segment ?? "");
+  const cleaned = raw
+    .replace(/\.\./g, "_")
+    .replace(/[^a-zA-Z0-9_.-]/g, "_")
+    .slice(0, 64);
+  return cleaned.length > 0 ? cleaned : "unknown";
+}
+
+/**
+ * Defense-in-depth: only allow GET for keys under trade-reports/, reject
+ * path traversal, absolute paths, and unexpected characters.
+ */
+export function isSafeReportKey(key: string): boolean {
+  if (!key || key.length > MAX_REPORT_KEY_LENGTH) return false;
+  if (key.includes("\0") || key.includes("\\")) return false;
+  if (key.startsWith("/") || key.includes("..")) return false;
+  if (!key.startsWith(REPORT_KEY_PREFIX)) return false;
+  // Allow nested path segments with safe characters only
+  if (!/^[a-zA-Z0-9/_.\-:=]+$/.test(key)) return false;
+  return true;
 }
 
 // --- Report Functions ---
@@ -58,21 +95,18 @@ export async function saveReportToR2(
       2
     );
 
-    // Generate a unique filename
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-"); // Filesystem-friendly timestamp
-    const filename = `trade-reports/${payload.exchange}/${payload.symbol}/${timestamp}-${dbLogId || "no-id"}.json`;
+    // Generate a unique filename under the locked-down prefix
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const exchangeSeg = sanitizeReportPathSegment(payload.exchange);
+    const symbolSeg = sanitizeReportPathSegment(payload.symbol);
+    const idSeg = sanitizeReportPathSegment(dbLogId || "no-id");
+    const filename = `${REPORT_KEY_PREFIX}${exchangeSeg}/${symbolSeg}/${timestamp}-${idSeg}.json`;
 
     logger.info("Attempting to save report to R2", { dbLogId, filename });
 
     // Put the object into the R2 bucket
     const r2Object = await env.REPORTS_BUCKET.put(filename, reportContent, {
       httpMetadata: { contentType: "application/json" },
-      // Optionally add custom metadata
-      // customMetadata: {
-      //   exchange: payload.exchange,
-      //   symbol: payload.symbol,
-      //   action: payload.action,
-      // },
     });
 
     logger.info("Successfully saved report to R2", {
@@ -108,6 +142,13 @@ export async function handleGetReportRequest(
 
   if (!key) {
     return new Response("Missing 'key' query parameter", { status: 400 });
+  }
+
+  if (!isSafeReportKey(key)) {
+    return new Response(
+      "Invalid report key (must be under trade-reports/ with no path traversal)",
+      { status: 400 }
+    );
   }
 
   if (!env.REPORTS_BUCKET) {

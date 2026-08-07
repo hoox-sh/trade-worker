@@ -252,6 +252,28 @@ export function validateTradePayload(payload: unknown): ValidationResult {
     return { isValid: false, error: "Missing required fields in payload" };
   }
 
+  if (typeof exchange !== "string" || exchange.length > 32) {
+    return { isValid: false, error: "Invalid exchange in payload" };
+  }
+  // Alphanumeric exchange ids only (blocks path separators in report keys, etc.)
+  if (!/^[a-zA-Z0-9_-]+$/.test(exchange)) {
+    return { isValid: false, error: "Invalid exchange in payload" };
+  }
+
+  if (typeof symbol !== "string" || symbol.length < 1 || symbol.length > 32) {
+    return { isValid: false, error: "Invalid symbol in payload" };
+  }
+  // Allow exchange-style symbols (BTCUSDT, BTC_USDT, BTC/USDT) but block
+  // path traversal / control characters used against R2 keys or logs.
+  if (
+    symbol.includes("..") ||
+    symbol.includes("\\") ||
+    symbol.includes("\0") ||
+    !/^[A-Za-z0-9_./:-]+$/.test(symbol)
+  ) {
+    return { isValid: false, error: "Invalid symbol in payload" };
+  }
+
   const validActions: WebhookPayload["action"][] = [
     "LONG",
     "SHORT",
@@ -271,7 +293,7 @@ export function validateTradePayload(payload: unknown): ValidationResult {
   // Add further checks (e.g., price/leverage types if present)
   if (
     wp.price !== undefined &&
-    (typeof wp.price !== "number" || isNaN(wp.price))
+    (typeof wp.price !== "number" || isNaN(wp.price) || wp.price <= 0)
   ) {
     return { isValid: false, error: "Invalid price in payload" };
   }
@@ -280,9 +302,14 @@ export function validateTradePayload(payload: unknown): ValidationResult {
     (typeof wp.leverage !== "number" ||
       isNaN(wp.leverage) ||
       !Number.isInteger(wp.leverage) ||
-      wp.leverage <= 0)
+      wp.leverage <= 0 ||
+      wp.leverage > 125)
   ) {
     return { isValid: false, error: "Invalid leverage in payload" };
+  }
+
+  if (wp.test !== undefined && typeof wp.test !== "boolean") {
+    return { isValid: false, error: "Invalid test flag in payload" };
   }
 
   return { isValid: true };

@@ -115,6 +115,59 @@ async function rpcD1(
 }
 
 /**
+ * Validate POST /api/signals body fields (types, bounds, safe symbol chars).
+ * Returns an error message string, or null when valid.
+ */
+export function validateSignalPayload(
+  payload: Record<string, unknown>
+): string | null {
+  if (
+    payload.symbol === undefined ||
+    payload.signal_type === undefined ||
+    payload.timestamp === undefined
+  ) {
+    return "Missing required fields: symbol, signal_type, timestamp";
+  }
+
+  if (typeof payload.symbol !== "string") {
+    return "Invalid symbol (must be a string)";
+  }
+  const symbol = payload.symbol.trim();
+  if (symbol.length < 1 || symbol.length > 32) {
+    return "Invalid symbol (length 1-32)";
+  }
+  // Exchange-style symbols only — blocks path/injection characters
+  if (!/^[A-Za-z0-9_./:-]+$/.test(symbol)) {
+    return "Invalid symbol (disallowed characters)";
+  }
+
+  if (typeof payload.signal_type !== "string") {
+    return "Invalid signal_type (must be a string)";
+  }
+  const signalType = payload.signal_type.trim();
+  if (signalType.length < 1 || signalType.length > 32) {
+    return "Invalid signal_type (length 1-32)";
+  }
+
+  if (
+    typeof payload.timestamp !== "number" ||
+    !Number.isFinite(payload.timestamp) ||
+    payload.timestamp <= 0
+  ) {
+    return "Invalid timestamp (must be a positive finite number)";
+  }
+
+  if (
+    payload.source !== undefined &&
+    (typeof payload.source !== "string" || payload.source.length > 128)
+  ) {
+    return "Invalid source (string, max 128 chars)";
+  }
+
+  return null;
+}
+
+/**
  * Inserts a trade signal into the D1 database via named RPC.
  */
 export async function insertSignal(
@@ -183,28 +236,42 @@ export async function handlePostSignalRequest(
     );
   }
 
-  // Basic validation (expand as needed)
-  if (
-    !signalPayload.symbol ||
-    !signalPayload.signal_type ||
-    !signalPayload.timestamp
-  ) {
+  // Strict field validation (types + bounds — defense before D1 RPC)
+  const validationError = validateSignalPayload(signalPayload);
+  if (validationError) {
     return createJsonResponse(
-      {
-        success: false,
-        error: "Missing required fields: symbol, signal_type, timestamp",
-      },
+      { success: false, error: validationError },
       400
     );
   }
 
+  const symbol = signalPayload.symbol as string;
+  const signalType = signalPayload.signal_type as string;
+  const timestamp = signalPayload.timestamp as number;
+  const source =
+    typeof signalPayload.source === "string"
+      ? signalPayload.source.slice(0, 128)
+      : undefined;
+
+  // Cap raw payload size stored in D1 to avoid abuse
+  let rawData: string | undefined;
+  try {
+    const serialized = JSON.stringify(signalPayload);
+    rawData =
+      serialized.length > 8192
+        ? serialized.slice(0, 8192) + "…[truncated]"
+        : serialized;
+  } catch {
+    rawData = undefined;
+  }
+
   const signalRecord: TradeSignalRecord = {
-    signal_id: crypto.randomUUID(), // Generate a unique ID
-    timestamp: signalPayload.timestamp as number, // Assume provided timestamp is correct
-    symbol: signalPayload.symbol as string,
-    signal_type: signalPayload.signal_type as string,
-    source: signalPayload.source as string | undefined,
-    raw_data: JSON.stringify(signalPayload), // Store the whole payload as raw data
+    signal_id: crypto.randomUUID(),
+    timestamp,
+    symbol: symbol.slice(0, 32),
+    signal_type: signalType.slice(0, 32),
+    source,
+    raw_data: rawData,
   };
 
   try {

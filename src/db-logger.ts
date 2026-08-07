@@ -84,6 +84,48 @@ export class DbLogger implements IDbLogger {
     return result;
   }
 
+  /** Field names that must never be persisted in request logs. */
+  private static readonly SENSITIVE_BODY_FIELDS = new Set([
+    "internalAuthKey",
+    "apiKey",
+    "apiSecret",
+    "api_key",
+    "api_secret",
+    "password",
+    "secret",
+    "token",
+    "authorization",
+  ]);
+
+  private static readonly SENSITIVE_HEADERS = [
+    "authorization",
+    "x-internal-auth-key",
+    "cookie",
+  ];
+
+  /**
+   * Recursively redact sensitive keys in request bodies (depth-capped).
+   * Covers nested `/process` envelopes and unexpected secret fields.
+   */
+  static redactSensitiveValue(value: unknown, depth = 0): unknown {
+    if (depth > 5 || value === null || value === undefined) return value;
+    if (typeof value !== "object") return value;
+    if (Array.isArray(value)) {
+      return value.map((item) => DbLogger.redactSensitiveValue(item, depth + 1));
+    }
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(
+      value as Record<string, unknown>
+    )) {
+      if (DbLogger.SENSITIVE_BODY_FIELDS.has(key)) {
+        out[key] = "[REDACTED]";
+      } else {
+        out[key] = DbLogger.redactSensitiveValue(child, depth + 1);
+      }
+    }
+    return out;
+  }
+
   /**
    * Logs request details to R2.
    * @param request The incoming Request object.
@@ -101,32 +143,11 @@ export class DbLogger implements IDbLogger {
     try {
       const headers = DbLogger.headersToObject(request.headers);
       const redactedHeaders = { ...headers };
-      const sensitiveHeaders = [
-        "authorization",
-        "x-internal-auth-key",
-        "cookie",
-      ];
-      for (const h of sensitiveHeaders) {
+      for (const h of DbLogger.SENSITIVE_HEADERS) {
         if (redactedHeaders[h]) redactedHeaders[h] = "[REDACTED]";
       }
 
-      let redactedBody: unknown = requestBody;
-      if (typeof requestBody === "object" && requestBody !== null) {
-        const bodyRecord = { ...(requestBody as Record<string, unknown>) };
-        const sensitiveFields = [
-          "internalAuthKey",
-          "apiKey",
-          "password",
-          "secret",
-          "token",
-        ];
-        for (const field of sensitiveFields) {
-          if (field in bodyRecord) {
-            bodyRecord[field] = "[REDACTED]";
-          }
-        }
-        redactedBody = bodyRecord;
-      }
+      const redactedBody = DbLogger.redactSensitiveValue(requestBody);
 
       const logId = crypto.randomUUID();
       const logPayload = {
@@ -200,12 +221,7 @@ export class DbLogger implements IDbLogger {
           response.headers.forEach((value, key) => {
             headersObject[key] = value;
           });
-          const sensitiveHeaders = [
-            "authorization",
-            "x-internal-auth-key",
-            "cookie",
-          ];
-          for (const h of sensitiveHeaders) {
+          for (const h of DbLogger.SENSITIVE_HEADERS) {
             if (headersObject[h]) headersObject[h] = "[REDACTED]";
           }
         } catch (e) {

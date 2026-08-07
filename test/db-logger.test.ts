@@ -111,6 +111,39 @@ describe("DbLogger", () => {
     errorSpy.mockRestore();
   });
 
+  test("logRequest redacts nested sensitive fields before R2 write", async () => {
+    const request = new Request("http://test.com/process", {
+      method: "POST",
+      headers: {
+        "x-internal-auth-key": "super-secret-header",
+        authorization: "Bearer tok",
+      },
+    });
+    const body = {
+      internalAuthKey: "legacy-key",
+      payload: {
+        apiKey: "nested-api-key",
+        apiSecret: "nested-secret",
+        exchange: "bybit",
+        symbol: "BTCUSDT",
+      },
+      token: "top-level-token",
+    };
+
+    await logger.logRequest(request, body);
+
+    expect(mockR2Put).toHaveBeenCalledTimes(1);
+    const stored = JSON.parse(mockR2Put.mock.calls[0][1] as string);
+    expect(stored.headers["x-internal-auth-key"]).toBe("[REDACTED]");
+    expect(stored.headers["authorization"]).toBe("[REDACTED]");
+    expect(stored.body.internalAuthKey).toBe("[REDACTED]");
+    expect(stored.body.token).toBe("[REDACTED]");
+    expect(stored.body.payload.apiKey).toBe("[REDACTED]");
+    expect(stored.body.payload.apiSecret).toBe("[REDACTED]");
+    expect(stored.body.payload.exchange).toBe("bybit");
+    expect(stored.body.payload.symbol).toBe("BTCUSDT");
+  });
+
   // --- logResponse Tests ---
   test("logResponse should not call put if logging is disabled", async () => {
     mockEnv = {};

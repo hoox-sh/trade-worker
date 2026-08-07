@@ -478,6 +478,10 @@ describe("Trade Worker Helpers", () => {
         isValid: false,
         error: "Invalid price in payload",
       });
+      expect(validateTradePayload({ ...validPayload, price: -1 })).toEqual({
+        isValid: false,
+        error: "Invalid price in payload",
+      });
     });
     it("should return invalid for invalid leverage", () => {
       expect(
@@ -490,6 +494,18 @@ describe("Trade Worker Helpers", () => {
       expect(validateTradePayload({ ...validPayload, leverage: 10.5 })).toEqual(
         { isValid: false, error: "Invalid leverage in payload" }
       ); // Must be integer
+      expect(validateTradePayload({ ...validPayload, leverage: 200 })).toEqual({
+        isValid: false,
+        error: "Invalid leverage in payload",
+      });
+    });
+    it("should return invalid for path-injection exchange/symbol", () => {
+      expect(
+        validateTradePayload({ ...validPayload, exchange: "../evil" })
+      ).toEqual({ isValid: false, error: "Invalid exchange in payload" });
+      expect(
+        validateTradePayload({ ...validPayload, symbol: "BTC/../USDT" })
+      ).toEqual({ isValid: false, error: "Invalid symbol in payload" });
     });
     it("should return valid if optional fields (price, leverage, orderType) are missing", () => {
       expect(validateTradePayload(validPayload)).toEqual({ isValid: true });

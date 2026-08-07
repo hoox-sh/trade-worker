@@ -12,7 +12,12 @@ import {
   beforeEach,
   afterEach,
 } from "bun:test";
-import { saveReportToR2, handleGetReportRequest } from "../src/reports";
+import {
+  saveReportToR2,
+  handleGetReportRequest,
+  isSafeReportKey,
+  sanitizeReportPathSegment,
+} from "../src/reports";
 import type { WebhookPayload } from "@hoox-sh/hoox-shared/types";
 
 // ============================================================================
@@ -302,9 +307,12 @@ describe("handleGetReportRequest", () => {
   // Test 7: REPORTS_BUCKET not configured
   // --------------------------------------------------------------------------
   test("returns 500 when REPORTS_BUCKET is not configured", async () => {
-    const request = new Request("http://localhost/reports?key=some-key", {
-      headers: { "X-Internal-Auth-Key": "secret-123" },
-    });
+    const request = new Request(
+      "http://localhost/reports?key=trade-reports/binance/BTCUSDT/report.json",
+      {
+        headers: { "X-Internal-Auth-Key": "secret-123" },
+      }
+    );
 
     const response = await handleGetReportRequest(request, {
       INTERNAL_KEY_BINDING: "secret-123",
@@ -315,6 +323,32 @@ describe("handleGetReportRequest", () => {
     expect(body).toContain("not configured");
     // Should not have attempted to call get on undefined
     expect(mockGet).not.toHaveBeenCalled();
+  });
+
+  // --------------------------------------------------------------------------
+  // Test: path traversal / unsafe keys rejected
+  // --------------------------------------------------------------------------
+  test("returns 400 for path traversal report keys", async () => {
+    const badKeys = [
+      "../secrets/key.json",
+      "trade-reports/../../etc/passwd",
+      "/absolute/path.json",
+      "other-prefix/file.json",
+      "trade-reports/binance/../../escape.json",
+    ];
+
+    for (const key of badKeys) {
+      const request = new Request(
+        `http://localhost/reports?key=${encodeURIComponent(key)}`,
+        { headers: { "X-Internal-Auth-Key": "secret-123" } }
+      );
+      const response = await handleGetReportRequest(request, {
+        REPORTS_BUCKET: mockBucket as any,
+        INTERNAL_KEY_BINDING: "secret-123",
+      });
+      expect(response.status).toBe(400);
+      expect(mockGet).not.toHaveBeenCalled();
+    }
   });
 
   // --------------------------------------------------------------------------
@@ -455,5 +489,32 @@ describe("handleGetReportRequest", () => {
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       expect.stringContaining("Failed to retrieve R2 object")
     );
+  });
+});
+
+// ============================================================================
+// isSafeReportKey / sanitizeReportPathSegment
+// ============================================================================
+
+describe("report key helpers", () => {
+  test("isSafeReportKey accepts valid trade-reports keys", () => {
+    expect(
+      isSafeReportKey("trade-reports/binance/BTCUSDT/2026-01-01-id.json")
+    ).toBe(true);
+  });
+
+  test("isSafeReportKey rejects traversal and wrong prefixes", () => {
+    expect(isSafeReportKey("")).toBe(false);
+    expect(isSafeReportKey("trade-reports/../x")).toBe(false);
+    expect(isSafeReportKey("/trade-reports/x")).toBe(false);
+    expect(isSafeReportKey("logs/secret.json")).toBe(false);
+  });
+
+  test("sanitizeReportPathSegment strips path separators", () => {
+    // ".." collapsed, then "/" replaced → binance + _ + _ + _ + x
+    expect(sanitizeReportPathSegment("binance/../x")).toBe("binance___x");
+    expect(sanitizeReportPathSegment("BTCUSDT")).toBe("BTCUSDT");
+    expect(sanitizeReportPathSegment("")).toBe("unknown");
+    expect(sanitizeReportPathSegment(555)).toBe("555");
   });
 });
