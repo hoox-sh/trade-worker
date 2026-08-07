@@ -228,7 +228,10 @@ async function parseJsonBody(
   }
 
   try {
-    const text = new TextDecoder("utf-8", { fatal: false }).decode(merged);
+    const text = new TextDecoder("utf-8", {
+      fatal: false,
+      ignoreBOM: true,
+    }).decode(merged);
     const value = JSON.parse(text) as unknown;
     return { ok: true, value };
   } catch {
