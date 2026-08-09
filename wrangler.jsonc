@@ -2,7 +2,7 @@
   "name": "trade-worker",
   "account_id": "debc6545e63bea36be059cbc82d80ec8",
   "main": "src/index.ts",
-  "alias": {
+    "alias": {
     "@hoox-sh/hoox-shared/errors": "../../packages/shared/src/errors.ts",
     "@hoox-sh/hoox-shared/middleware": "../../packages/shared/src/middleware/index.ts",
     "@hoox-sh/hoox-shared/router": "../../packages/shared/src/router.ts",
@@ -11,7 +11,11 @@
     "@hoox-sh/hoox-shared/analytics": "../../packages/shared/src/analytics.ts",
     "@hoox-sh/hoox-shared/health": "../../packages/shared/src/health.ts",
     "@hoox-sh/hoox-shared/kvKeys": "../../packages/shared/src/kvKeys.ts",
-    "@hoox-sh/hoox-shared/exchange-client": "../../packages/shared/src/exchange-client.ts"
+    "@hoox-sh/hoox-shared/exchange-client": "../../packages/shared/src/exchange-client.ts",
+    "@hoox-sh/hoox-shared": "../../packages/shared/src/index.ts",
+    "@hoox-sh/hoox-shared/exchanges": "../../packages/shared/src/exchanges/index.ts",
+    "@hoox-sh/hoox-shared/queue-handler": "../../packages/shared/src/queue-handler.ts",
+    "@hoox-sh/hoox-shared/service-bindings": "../../packages/shared/src/service-bindings.ts"
   },
   "compatibility_date": "2026-06-08",
   "compatibility_flags": ["nodejs_compat"],
