@@ -62,6 +62,8 @@ export interface ExecutionEnv {
 // Generic client interface (mirrored from index.ts to avoid circular dependency)
 export interface IExchangeClient {
   getAccountInfo: () => Promise<Record<string, unknown>>;
+  /** Live open positions (exchange-native shape; reconcile normalizes). */
+  getPositions: (symbol?: string) => Promise<unknown>;
   setLeverage?: (symbol: string, leverage: number) => Promise<void>;
   openLong: (
     symbol: string,
