@@ -51,6 +51,7 @@ import {
   resolveQueueIdempotencyKey,
   resolveTradeIdempotencyKey,
 } from "./idempotency";
+import { reconcilePositions } from "./reconcile";
 
 export { ExchangeConnectionManager };
 
@@ -405,6 +406,47 @@ router.get(
   "/report",
   async (request: Request, env: Env, _ctx: ExecutionContext) => {
     return await handleGetReportRequest(request, env);
+  }
+);
+
+/**
+ * POST /api/positions/reconcile — exchange ↔ D1 position sync.
+ * Auth: trade execute key (same as /webhook). Optional JSON body:
+ * { exchanges?: string[], testnet?: boolean, dryRun?: boolean }
+ */
+router.post(
+  "/api/positions/reconcile",
+  async (request: Request, env: Env, _ctx: ExecutionContext) => {
+    const authError = requireTradeExecuteAuth(request, env);
+    if (authError) return authError;
+
+    let body: {
+      exchanges?: string[];
+      testnet?: boolean;
+      dryRun?: boolean;
+    } = {};
+    if (request.headers.get("Content-Length") !== "0") {
+      try {
+        const text = await request.text();
+        if (text.trim()) {
+          body = JSON.parse(text) as typeof body;
+        }
+      } catch {
+        return Errors.badRequest("Invalid JSON body");
+      }
+    }
+
+    try {
+      const summary = await reconcilePositions(env, {
+        exchanges: Array.isArray(body.exchanges) ? body.exchanges : undefined,
+        testnet: body.testnet === true,
+        dryRun: body.dryRun === true,
+      });
+      return createJsonResponse({ success: true, result: summary });
+    } catch (error: unknown) {
+      logger.error("Position reconcile failed", { error: toError(error) });
+      return Errors.internal(toError(error));
+    }
   }
 );
 
