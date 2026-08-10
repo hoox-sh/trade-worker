@@ -51,6 +51,7 @@ Post-execution, the worker logs structured trade records to D1 (via the [`d1-wor
 | `POST`  | `/webhook`        | Internal key | Direct signal injection (service binding) |
 | `POST`  | `/process`        | Internal key | Legacy signal processing                  |
 | `GET`   | `/api/signals`    | Internal key | Signal history                            |
+| `GET`   | `/api/system-logs`| Internal key | Recent `system_logs` (operator SSE feed)  |
 | `GET`   | `/report`         | Internal key | Per-trade R2 report                       |
 | `GET`   | `/health`         | None         | Liveness probe                            |
 

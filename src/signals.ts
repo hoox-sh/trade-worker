@@ -343,3 +343,86 @@ export async function handleGetSignalsRequest(
     );
   }
 }
+
+// --- System logs (operator SSE feed via hoox-worker) ---
+
+/**
+ * Row shape for system_logs SELECT used by operator log streams.
+ */
+export interface SystemLogRecord {
+  id: string;
+  timestamp: number;
+  level: string;
+  service: string;
+  message: string;
+  details?: string | null;
+}
+
+/**
+ * Retrieves recent system_logs rows from D1 (SELECT via d1-worker /query).
+ */
+export async function getRecentSystemLogs(
+  env: D1Env,
+  limit: number = 20
+): Promise<SystemLogRecord[]> {
+  if (!env.D1_SERVICE) {
+    throw new Error("D1_SERVICE binding not configured.");
+  }
+  const query = `SELECT id, timestamp, level, service, message, details
+         FROM system_logs
+         ORDER BY timestamp DESC
+         LIMIT ?`;
+
+  const data = await queryD1(env, query, [limit]);
+  if (!data.success) {
+    throw new Error(data.error || "D1 getRecentSystemLogs failed");
+  }
+
+  return (data.results || []) as SystemLogRecord[];
+}
+
+/**
+ * Handles GET /api/system-logs — recent system_logs for operator SSE polling.
+ * Auth: TRADE_READ_AUTH_KEY_FIELDS (same as GET /api/signals).
+ */
+export async function handleGetSystemLogsRequest(
+  request: Request,
+  env: D1Env
+): Promise<Response> {
+  const authResponse = requireInternalAuth(
+    request,
+    env,
+    TRADE_READ_AUTH_KEY_FIELDS
+  );
+  if (authResponse) return authResponse;
+
+  const url = new URL(request.url);
+  const limitParam = url.searchParams.get("limit");
+  const limit = limitParam ? parseInt(limitParam, 10) : 20;
+
+  if (isNaN(limit) || limit <= 0 || limit > 100) {
+    return createJsonResponse(
+      {
+        success: false,
+        error: "Invalid limit parameter (must be 1-100)",
+      },
+      400
+    );
+  }
+
+  try {
+    const logs = await getRecentSystemLogs(env, limit);
+    return createJsonResponse({ success: true, result: logs }, 200);
+  } catch (error) {
+    logger.error("Error fetching system logs from D1", {
+      error: toError(error),
+    });
+    return createJsonResponse(
+      {
+        success: false,
+        error: "Internal server error while fetching system logs.",
+      },
+      500
+    );
+  }
+}

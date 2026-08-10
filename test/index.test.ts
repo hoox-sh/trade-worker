@@ -268,6 +268,76 @@ describe("Trade Worker - D1 Signals Endpoint (/api/signals)", () => {
     });
   });
 
+  // --- Tests for GET /api/system-logs ---
+  describe("GET /api/system-logs", () => {
+    const mockLogResults = [
+      {
+        id: "log-1",
+        timestamp: 100,
+        level: "INFO",
+        service: "trade-worker",
+        message: "ok",
+        details: null,
+      },
+      {
+        id: "log-2",
+        timestamp: 90,
+        level: "ERROR",
+        service: "hoox",
+        message: "fail",
+        details: "{}",
+      },
+    ];
+
+    it("should return recent system logs with default limit", async () => {
+      mockEnv.D1_SERVICE.fetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ success: true, results: mockLogResults }),
+          { status: 200 }
+        )
+      );
+
+      const request = createMockRequest("GET", "/api/system-logs");
+      const response = await worker.fetch(request, mockEnv, {} as any);
+
+      expect(response.status).toBe(200);
+      const responseBody = (await response.json()) as any;
+      expect(responseBody.success).toBe(true);
+      expect(responseBody.result).toEqual(mockLogResults);
+      expect(mockEnv.D1_SERVICE.fetch).toHaveBeenCalledTimes(1);
+      const fetchArg = mockEnv.D1_SERVICE.fetch.mock.calls[0][0];
+      const fetchUrl =
+        typeof fetchArg === "string"
+          ? fetchArg
+          : fetchArg instanceof Request
+            ? fetchArg.url
+            : String(fetchArg);
+      // D1 query goes to /query with system_logs SQL
+      expect(String(fetchUrl)).toContain("/query");
+    });
+
+    it("should return 400 for invalid limit", async () => {
+      const request = createMockRequest("GET", "/api/system-logs?limit=0");
+      const response = await worker.fetch(request, mockEnv, {} as any);
+      expect(response.status).toBe(400);
+      const responseBody = (await response.json()) as any;
+      expect(responseBody.success).toBe(false);
+      expect(responseBody.error).toContain("Invalid limit");
+    });
+
+    it("should require internal auth", async () => {
+      const request = createMockRequest(
+        "GET",
+        "/api/system-logs",
+        undefined,
+        undefined,
+        false
+      );
+      const response = await worker.fetch(request, mockEnv, {} as any);
+      expect(response.status).toBe(401);
+    });
+  });
+
   // --- Tests for GET /api/signals ---
   describe("GET /api/signals", () => {
     const mockSignalResults = [

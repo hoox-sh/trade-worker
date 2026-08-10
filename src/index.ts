@@ -41,6 +41,7 @@ import {
 import {
   handlePostSignalRequest,
   handleGetSignalsRequest,
+  handleGetSystemLogsRequest,
   type D1Env,
 } from "./signals";
 import { saveReportToR2, handleGetReportRequest } from "./reports";
@@ -48,8 +49,10 @@ import { sendTradeNotification, TradeQueueMessage } from "./notifications";
 import { ExchangeConnectionManager } from "./exchange-connection-manager";
 import {
   checkAndStoreIdempotency,
+  isIdempotencyKeyPresent,
   resolveQueueIdempotencyKey,
   resolveTradeIdempotencyKey,
+  storeIdempotencyKey,
 } from "./idempotency";
 import { reconcilePositions } from "./reconcile";
 
@@ -138,6 +141,7 @@ const MAX_JSON_BODY_BYTES = 256 * 1024; // 256 KiB
 const PROCESS_ENDPOINT = "/process"; // For legacy/direct calls with internal key
 const WEBHOOK_ENDPOINT = "/webhook"; // For calls from hoox via Service Binding
 const SIGNALS_ENDPOINT = "/api/signals"; // New endpoint for D1 signals
+const SYSTEM_LOGS_ENDPOINT = "/api/system-logs"; // Operator SSE log feed
 
 function tradeExecuteAuthConfigError(): Response {
   return Errors.internal("Service configuration error");
@@ -257,16 +261,16 @@ async function executeTradeFromQueue(
 ): Promise<{ success: boolean; result?: unknown; error?: string }> {
   try {
     // Best-effort dedupe for queue redelivery. Prefer requestId-scoped key.
-    // If key already seen, treat as success (ack) so at-least-once delivery
-    // after a completed trade does not re-execute. Failures after store still
-    // block retries within TTL — same trade-off as gateway DO idempotency.
+    // Check presence only before execute; store only after successful execute
+    // so a failed first attempt with the same requestId can still retry within TTL.
+    // If key already present (prior success), ack without re-execute.
     const idempKey = resolveQueueIdempotencyKey(trade);
-    const idemp = await checkAndStoreIdempotency(env.CONFIG_KV, idempKey);
+    const idemp = await isIdempotencyKeyPresent(env.CONFIG_KV, idempKey);
     if (idemp.skipped) {
       logger.warn(
         `[${trade.requestId}] Queue idempotency skipped (CONFIG_KV unavailable or error)`
       );
-    } else if (!idemp.isNew) {
+    } else if (idemp.present) {
       logger.info(
         `[${trade.requestId}] Duplicate queue trade, acking without re-execute: ${idempKey.slice(0, 64)}`
       );
@@ -294,11 +298,23 @@ async function executeTradeFromQueue(
       ctx
     );
 
-    return {
+    const result = {
       success: tradeResult.success ?? false,
       result: tradeResult.result,
       error: tradeResult.error || undefined,
     };
+
+    // Store key only after success so failed attempts remain retryable.
+    if (result.success) {
+      const store = await storeIdempotencyKey(env.CONFIG_KV, idempKey);
+      if (store.skipped) {
+        logger.warn(
+          `[${trade.requestId}] Queue idempotency store skipped (CONFIG_KV unavailable or error)`
+        );
+      }
+    }
+
+    return result;
   } catch (error: unknown) {
     return { success: false, error: toError(error) };
   }
@@ -378,6 +394,13 @@ router.get(
   SIGNALS_ENDPOINT,
   async (request: Request, env: Env, _ctx: ExecutionContext) => {
     return await handleGetSignalsRequest(request, env as unknown as D1Env);
+  }
+);
+
+router.get(
+  SYSTEM_LOGS_ENDPOINT,
+  async (request: Request, env: Env, _ctx: ExecutionContext) => {
+    return await handleGetSystemLogsRequest(request, env as unknown as D1Env);
   }
 );
 

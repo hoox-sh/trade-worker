@@ -63,16 +63,23 @@ export function resolveTradeIdempotencyKey(
 
 /**
  * Resolve an idempotency key for queue messages.
- * Prefer `idemp:queue:{requestId}` when requestId is present.
+ * Prefer gateway-resolved `idempotencyKey` when present (aligns with DO),
+ * then `idemp:queue:{requestId}`, else payload fingerprint.
  */
 export function resolveQueueIdempotencyKey(trade: {
   requestId?: string;
+  /** Gateway-resolved key (client or auto fingerprint) from TradeQueueMessage. */
+  idempotencyKey?: string;
   exchange: string;
   action: string;
   symbol: string;
   quantity: number;
   test?: boolean;
 }): string {
+  const gatewayKey = trade.idempotencyKey?.trim();
+  if (gatewayKey) {
+    return gatewayKey;
+  }
   const requestId = trade.requestId?.trim();
   if (requestId) {
     return `idemp:queue:${requestId}`;
@@ -82,7 +89,63 @@ export function resolveQueueIdempotencyKey(trade: {
 }
 
 /**
- * Check-and-store a key in CONFIG_KV.
+ * Get-only check: whether an idempotency key is already present in CONFIG_KV.
+ * Used by the queue path so a failed execute can still retry within TTL.
+ *
+ * - Missing KV → `{ present: false, skipped: true }` (cannot dedupe; fail-open)
+ * - Key present → `{ present: true }`
+ * - Key absent → `{ present: false }`
+ * - KV error → `{ present: false, skipped: true }` fail-open so trading continues
+ */
+export async function isIdempotencyKeyPresent(
+  kv: KVNamespace | undefined,
+  key: string
+): Promise<{ present: boolean; skipped?: boolean }> {
+  if (!kv) {
+    return { present: false, skipped: true };
+  }
+
+  try {
+    const existing = await kv.get(key);
+    return { present: existing !== null };
+  } catch {
+    // Fail open on KV errors (match gateway DO fail-open) — do not halt trading.
+    return { present: false, skipped: true };
+  }
+}
+
+/**
+ * Put-only store of an idempotency key after a successful execute (queue path).
+ *
+ * - Missing KV → `{ stored: false, skipped: true }`
+ * - Put succeeds → `{ stored: true }`
+ * - KV error → `{ stored: false, skipped: true }` fail-open
+ */
+export async function storeIdempotencyKey(
+  kv: KVNamespace | undefined,
+  key: string,
+  ttlSeconds: number = DEFAULT_TTL_SECONDS
+): Promise<{ stored: boolean; skipped?: boolean }> {
+  if (!kv) {
+    return { stored: false, skipped: true };
+  }
+
+  try {
+    // Clamp TTL: Cloudflare KV requires expirationTtl >= 60
+    const ttl = Math.max(60, Math.floor(ttlSeconds));
+    await kv.put(key, new Date().toISOString(), { expirationTtl: ttl });
+    return { stored: true };
+  } catch {
+    return { stored: false, skipped: true };
+  }
+}
+
+/**
+ * Check-and-store a key in CONFIG_KV (HTTP ingress path).
+ *
+ * Unchanged semantics for /webhook and /process: check+store **before** execute
+ * so concurrent HTTP retries are best-effort deduped. Queue consumers use
+ * `isIdempotencyKeyPresent` + `storeIdempotencyKey` instead (store only after success).
  *
  * - Missing KV → `{ isNew: true, skipped: true }` (cannot dedupe; fail-open)
  * - Key present → `{ isNew: false }`
@@ -94,24 +157,19 @@ export async function checkAndStoreIdempotency(
   key: string,
   ttlSeconds: number = DEFAULT_TTL_SECONDS
 ): Promise<{ isNew: boolean; skipped?: boolean }> {
-  if (!kv) {
+  const check = await isIdempotencyKeyPresent(kv, key);
+  if (check.skipped) {
     return { isNew: true, skipped: true };
   }
+  if (check.present) {
+    return { isNew: false };
+  }
 
-  try {
-    const existing = await kv.get(key);
-    if (existing !== null) {
-      return { isNew: false };
-    }
-
-    // Clamp TTL: Cloudflare KV requires expirationTtl >= 60
-    const ttl = Math.max(60, Math.floor(ttlSeconds));
-    await kv.put(key, new Date().toISOString(), { expirationTtl: ttl });
-    return { isNew: true };
-  } catch {
-    // Fail open on KV errors (match gateway DO fail-open) — do not halt trading.
+  const store = await storeIdempotencyKey(kv, key, ttlSeconds);
+  if (store.skipped) {
     return { isNew: true, skipped: true };
   }
+  return { isNew: true };
 }
 
 /** @internal exported for tests / diagnostics */
