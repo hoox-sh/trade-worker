@@ -46,6 +46,11 @@ import {
 import { saveReportToR2, handleGetReportRequest } from "./reports";
 import { sendTradeNotification, TradeQueueMessage } from "./notifications";
 import { ExchangeConnectionManager } from "./exchange-connection-manager";
+import {
+  checkAndStoreIdempotency,
+  resolveQueueIdempotencyKey,
+  resolveTradeIdempotencyKey,
+} from "./idempotency";
 
 export { ExchangeConnectionManager };
 
@@ -250,6 +255,23 @@ async function executeTradeFromQueue(
   ctx: ExecutionContext
 ): Promise<{ success: boolean; result?: unknown; error?: string }> {
   try {
+    // Best-effort dedupe for queue redelivery. Prefer requestId-scoped key.
+    // If key already seen, treat as success (ack) so at-least-once delivery
+    // after a completed trade does not re-execute. Failures after store still
+    // block retries within TTL — same trade-off as gateway DO idempotency.
+    const idempKey = resolveQueueIdempotencyKey(trade);
+    const idemp = await checkAndStoreIdempotency(env.CONFIG_KV, idempKey);
+    if (idemp.skipped) {
+      logger.warn(
+        `[${trade.requestId}] Queue idempotency skipped (CONFIG_KV unavailable or error)`
+      );
+    } else if (!idemp.isNew) {
+      logger.info(
+        `[${trade.requestId}] Duplicate queue trade, acking without re-execute: ${idempKey.slice(0, 64)}`
+      );
+      return { success: true, result: { deduplicated: true } };
+    }
+
     const payload: WebhookPayload = {
       exchange: trade.exchange,
       action: trade.action as WebhookPayload["action"],
@@ -566,6 +588,30 @@ async function handleWebhookRequest(
     // *** Use validated payload ***
     const validatedPayload = validation.value;
 
+    // Entry-level idempotency (best-effort via CONFIG_KV; probes already returned)
+    const idempKey = resolveTradeIdempotencyKey(request, validatedPayload);
+    const idemp = await checkAndStoreIdempotency(env.CONFIG_KV, idempKey);
+    if (idemp.skipped) {
+      logger.warn(
+        `[${incomingRequestId}] Idempotency skipped (CONFIG_KV unavailable or error)`
+      );
+    } else if (!idemp.isNew) {
+      logger.info(
+        `[${incomingRequestId}] Duplicate trade request rejected: ${idempKey.slice(0, 64)}`
+      );
+      const response = createJsonResponse(
+        {
+          success: false,
+          error:
+            "Duplicate trade request. This trade was already processed.",
+          code: "DUPLICATE",
+        },
+        409
+      );
+      await dbLogger.logResponse(dbLogId, response, null, startTime, ctx);
+      return response;
+    }
+
     // *** Call executeTrade ***
     const tradeResult = await executeTrade(
       validatedPayload,
@@ -711,6 +757,30 @@ async function handleProcessRequest(
 
     // *** Use validated payload ***
     const validatedPayload = validation.value;
+
+    // Entry-level idempotency (best-effort via CONFIG_KV)
+    const idempKey = resolveTradeIdempotencyKey(request, validatedPayload);
+    const idemp = await checkAndStoreIdempotency(env.CONFIG_KV, idempKey);
+    if (idemp.skipped) {
+      logger.warn(
+        `[${incomingRequestId}] Idempotency skipped (CONFIG_KV unavailable or error)`
+      );
+    } else if (!idemp.isNew) {
+      logger.info(
+        `[${incomingRequestId}] Duplicate trade request rejected: ${idempKey.slice(0, 64)}`
+      );
+      const response = createJsonResponse(
+        {
+          success: false,
+          error:
+            "Duplicate trade request. This trade was already processed.",
+          code: "DUPLICATE",
+        },
+        409
+      );
+      await dbLogger.logResponse(dbLogId, response, null, startTime, ctx);
+      return response;
+    }
 
     // *** Call executeTrade ***
     const tradeResult = await executeTrade(

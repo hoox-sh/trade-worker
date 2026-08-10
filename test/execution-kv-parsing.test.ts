@@ -156,15 +156,26 @@ describe("trade-worker source - S-1 fix verification", () => {
     ).text();
     // Allow the string inside comments but not as a KV.get argument
     // The dangerous form is: `CONFIG_KV.get("kill_switch")`
-    // The correct form is: `CONFIG_KV.get(KVKeys.KV_TRADE_KILL_SWITCH)`
+    // Canonical path is the shared checkKillSwitch helper (both keys).
     const bareKeyUsage = /CONFIG_KV\.get\(\s*["']kill_switch["']\s*\)/;
     expect(source).not.toMatch(bareKeyUsage);
   });
 
-  it("references the canonical kill switch key from KVKeys", async () => {
+  it("uses shared checkKillSwitch helper (canonical keys via KVKeys)", async () => {
     const source = await Bun.file(
       new URL("../src/execution.ts", import.meta.url)
     ).text();
-    expect(source).toContain("KVKeys.KV_TRADE_KILL_SWITCH");
+    // Kill switch is delegated to @hoox-sh/hoox-shared/kill-switch which
+    // reads both trade:kill_switch and global:kill_switch via KVKeys.
+    expect(source).toContain("checkKillSwitch");
+    expect(source).toContain("@hoox-sh/hoox-shared/kill-switch");
+    // Risk knobs still use KVKeys for trade:* keys
+    expect(source).toContain("KVKeys.KV_TRADE_DEFAULT_LEVERAGE");
+  });
+
+  it("shared kill-switch package uses KV_TRADE_KILL_SWITCH and global key", () => {
+    // Pin the registry so S-1 cannot regress inside the shared helper.
+    expect(KVKeys.KV_TRADE_KILL_SWITCH).toBe("trade:kill_switch");
+    expect(KVKeys.KV_GLOBAL_KILL_SWITCH).toBe("global:kill_switch");
   });
 });

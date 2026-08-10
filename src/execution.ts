@@ -19,6 +19,10 @@ import { createLogger } from "@hoox-sh/hoox-shared/middleware";
 import type { WebhookPayload } from "@hoox-sh/hoox-shared/types";
 import { trackAnalytics } from "@hoox-sh/hoox-shared/analytics";
 import { KVKeys } from "@hoox-sh/hoox-shared/kvKeys";
+import {
+  checkKillSwitch,
+  KILL_SWITCH_ACTIVE_PREFIX,
+} from "@hoox-sh/hoox-shared/kill-switch";
 import type { IDbLogger } from "./db-logger";
 import { ExchangeRouter, type Env } from "./exchange-router";
 import { sendTradeNotificationToTelegram } from "./notifications";
@@ -357,68 +361,71 @@ export async function executeTrade(
 
     // --- Kill Switch & Risk Management via CONFIG_KV ---
     // Kill switch is FAIL-CLOSED: missing CONFIG_KV or KV read failure
-    // halts trading. Risk knobs (leverage/size) remain fail-open with
-    // safe defaults so a partial config outage does not invent caps.
-    if (!env.CONFIG_KV) {
-      throw new Error(
-        "KILL_SWITCH_ACTIVE: CONFIG_KV not configured — trading halted (fail-closed)"
-      );
-    }
-    try {
-      const [killSwitch, defaultLevStr, maxSizeStr] = await Promise.all([
-        env.CONFIG_KV.get(KVKeys.KV_TRADE_KILL_SWITCH),
-        env.CONFIG_KV.get(KVKeys.KV_TRADE_DEFAULT_LEVERAGE),
-        env.CONFIG_KV.get(KVKeys.KV_TRADE_MAX_POSITION_SIZE),
-      ]);
-
-      if (killSwitch === "true") {
+    // halts trading (shared helper). Risk knobs (leverage/size) remain
+    // fail-open with safe defaults so a partial config outage does not
+    // invent caps.
+    const killResult = await checkKillSwitch(env.CONFIG_KV, {
+      onMissingKv: "closed",
+      onReadError: "closed",
+    });
+    if (killResult.enabled) {
+      if (killResult.source === "missing_kv") {
         throw new Error(
-          "KILL_SWITCH_ACTIVE: Trading is disabled by kill switch"
+          `${KILL_SWITCH_ACTIVE_PREFIX}: CONFIG_KV not configured — trading halted (fail-closed)`
         );
       }
-
-      // Parse leverage safely. A malformed KV value (empty string,
-      // "abc", etc.) yields NaN from parseInt; NaN bypasses every
-      // later bound check (NaN > anyNumber === false), silently
-      // disabling the per-trade leverage cap. The same is true for
-      // parseFloat on the position-size KV value.
-      if (defaultLevStr && !overriddenLeverage) {
-        const parsedLev = parseInt(defaultLevStr, 10);
-        if (Number.isFinite(parsedLev) && parsedLev > 0) {
-          overriddenLeverage = parsedLev;
-          logger.info(
-            `[Risk Management] Applied default leverage: ${overriddenLeverage}`
-          );
-        } else {
-          logger.warn(
-            `[Risk Management] Ignoring malformed default_leverage value: ${JSON.stringify(defaultLevStr)}`
-          );
-        }
+      if (killResult.source === "read_error") {
+        throw new Error(
+          `${KILL_SWITCH_ACTIVE_PREFIX}: Unable to verify kill switch (${killResult.error ?? "unknown"})`
+        );
       }
-      if (maxSizeStr) {
-        const parsedSize = parseFloat(maxSizeStr);
-        if (Number.isFinite(parsedSize) && parsedSize > 0) {
-          maxPositionSize = parsedSize;
-        } else {
-          logger.warn(
-            `[Risk Management] Ignoring malformed max_position_size value: ${JSON.stringify(maxSizeStr)}`
-          );
-        }
-      }
-    } catch (e) {
-      // Re-throw kill switch / fail-closed errors; also fail-closed on
-      // unexpected KV failures (cannot verify kill switch state).
-      if (e instanceof Error && e.message.startsWith("KILL_SWITCH_ACTIVE")) {
-        throw e;
-      }
-      logger.error(
-        "Failed to fetch trade settings from KV — halting trade (fail-closed)",
-        { error: toError(e) }
-      );
       throw new Error(
-        `KILL_SWITCH_ACTIVE: Unable to verify kill switch (${toError(e)})`,
-        { cause: e }
+        `${KILL_SWITCH_ACTIVE_PREFIX}: Trading is disabled by kill switch (source=${killResult.source ?? "unknown"})`
       );
+    }
+
+    // Risk knobs: fail-open defaults if CONFIG_KV is present but risk keys fail.
+    if (env.CONFIG_KV) {
+      try {
+        const [defaultLevStr, maxSizeStr] = await Promise.all([
+          env.CONFIG_KV.get(KVKeys.KV_TRADE_DEFAULT_LEVERAGE),
+          env.CONFIG_KV.get(KVKeys.KV_TRADE_MAX_POSITION_SIZE),
+        ]);
+
+        // Parse leverage safely. A malformed KV value (empty string,
+        // "abc", etc.) yields NaN from parseInt; NaN bypasses every
+        // later bound check (NaN > anyNumber === false), silently
+        // disabling the per-trade leverage cap. The same is true for
+        // parseFloat on the position-size KV value.
+        if (defaultLevStr && !overriddenLeverage) {
+          const parsedLev = parseInt(defaultLevStr, 10);
+          if (Number.isFinite(parsedLev) && parsedLev > 0) {
+            overriddenLeverage = parsedLev;
+            logger.info(
+              `[Risk Management] Applied default leverage: ${overriddenLeverage}`
+            );
+          } else {
+            logger.warn(
+              `[Risk Management] Ignoring malformed default_leverage value: ${JSON.stringify(defaultLevStr)}`
+            );
+          }
+        }
+        if (maxSizeStr) {
+          const parsedSize = parseFloat(maxSizeStr);
+          if (Number.isFinite(parsedSize) && parsedSize > 0) {
+            maxPositionSize = parsedSize;
+          } else {
+            logger.warn(
+              `[Risk Management] Ignoring malformed max_position_size value: ${JSON.stringify(maxSizeStr)}`
+            );
+          }
+        }
+      } catch (e) {
+        logger.error(
+          "Failed to fetch trade risk settings from KV — using defaults (fail-open)",
+          { error: toError(e) }
+        );
+      }
     }
     // --- End Kill Switch & Risk Management ---
 
