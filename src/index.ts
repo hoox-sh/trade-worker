@@ -491,6 +491,8 @@ export default {
     const handler = createQueueHandler<TradeQueueMessage>({
       maxRetries: MAX_RETRIES,
       backoffDelays: BACKOFF_DELAYS,
+      // Independent queue trades: overlap exchange I/O (bounded).
+      concurrency: 3,
       logger,
       onMessage: async (trade, _attemptNumber) => {
         const parsed = TradeQueueMessageSchema.safeParse(trade);

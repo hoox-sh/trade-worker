@@ -5,7 +5,9 @@
 
 import { describe, expect, test, jest as vi } from "bun:test";
 import {
+  buildTradeFingerprint,
   checkAndStoreIdempotency,
+  FP_TIME_BUCKET_MS,
   isIdempotencyKeyPresent,
   resolveQueueIdempotencyKey,
   resolveTradeIdempotencyKey,
@@ -31,6 +33,39 @@ const samplePayload = {
   quantity: 0.01,
 };
 
+/** Fixed clock: minute bucket 28_333_333 (≈ 2024-era). */
+const FIXED_NOW_MS = 28_333_333 * FP_TIME_BUCKET_MS;
+const FIXED_BUCKET = Math.floor(FIXED_NOW_MS / FP_TIME_BUCKET_MS);
+
+describe("buildTradeFingerprint", () => {
+  test("includes per-minute time bucket", () => {
+    expect(buildTradeFingerprint(samplePayload, FIXED_NOW_MS)).toBe(
+      `idemp:fp:binance:BTCUSDT:LONG:0.01:live:${FIXED_BUCKET}`
+    );
+  });
+
+  test("same minute yields same fingerprint (retries dedupe)", () => {
+    const a = buildTradeFingerprint(samplePayload, FIXED_NOW_MS);
+    const b = buildTradeFingerprint(
+      samplePayload,
+      FIXED_NOW_MS + FP_TIME_BUCKET_MS - 1
+    );
+    expect(a).toBe(b);
+  });
+
+  test("next minute yields different fingerprint (intentional repeats work)", () => {
+    const first = buildTradeFingerprint(samplePayload, FIXED_NOW_MS);
+    const next = buildTradeFingerprint(
+      samplePayload,
+      FIXED_NOW_MS + FP_TIME_BUCKET_MS
+    );
+    expect(first).not.toBe(next);
+    expect(next).toBe(
+      `idemp:fp:binance:BTCUSDT:LONG:0.01:live:${FIXED_BUCKET + 1}`
+    );
+  });
+});
+
 describe("resolveTradeIdempotencyKey", () => {
   test("prefers Idempotency-Key header over X-Request-ID and fingerprint", () => {
     const request = new Request("http://internal/webhook", {
@@ -40,7 +75,7 @@ describe("resolveTradeIdempotencyKey", () => {
         "X-Request-ID": "req-xyz",
       },
     });
-    const key = resolveTradeIdempotencyKey(request, samplePayload);
+    const key = resolveTradeIdempotencyKey(request, samplePayload, FIXED_NOW_MS);
     expect(key).toBe("idemp:client:client-abc:live");
   });
 
@@ -49,27 +84,35 @@ describe("resolveTradeIdempotencyKey", () => {
       method: "POST",
       headers: { "X-Request-ID": "req-xyz" },
     });
-    const key = resolveTradeIdempotencyKey(request, samplePayload);
+    const key = resolveTradeIdempotencyKey(request, samplePayload, FIXED_NOW_MS);
     expect(key).toBe("idemp:client:req-xyz:live");
   });
 
-  test("falls back to fingerprint and splits live/test modes", () => {
+  test("falls back to fingerprint with time bucket and splits live/test modes", () => {
     const request = new Request("http://internal/webhook", { method: "POST" });
-    expect(resolveTradeIdempotencyKey(request, samplePayload)).toBe(
-      "idemp:fp:binance:BTCUSDT:LONG:0.01:live"
+    expect(resolveTradeIdempotencyKey(request, samplePayload, FIXED_NOW_MS)).toBe(
+      `idemp:fp:binance:BTCUSDT:LONG:0.01:live:${FIXED_BUCKET}`
     );
     expect(
-      resolveTradeIdempotencyKey(request, { ...samplePayload, test: true })
-    ).toBe("idemp:fp:binance:BTCUSDT:LONG:0.01:test");
+      resolveTradeIdempotencyKey(
+        request,
+        { ...samplePayload, test: true },
+        FIXED_NOW_MS
+      )
+    ).toBe(`idemp:fp:binance:BTCUSDT:LONG:0.01:test:${FIXED_BUCKET}`);
   });
 
-  test("client keys are mode-split", () => {
+  test("client keys are mode-split and not time-bucketed", () => {
     const request = new Request("http://internal/webhook", {
       method: "POST",
       headers: { "Idempotency-Key": "k1" },
     });
     expect(
-      resolveTradeIdempotencyKey(request, { ...samplePayload, test: true })
+      resolveTradeIdempotencyKey(
+        request,
+        { ...samplePayload, test: true },
+        FIXED_NOW_MS
+      )
     ).toBe("idemp:client:k1:test");
   });
 });
@@ -77,26 +120,32 @@ describe("resolveTradeIdempotencyKey", () => {
 describe("resolveQueueIdempotencyKey", () => {
   test("prefers gateway idempotencyKey over requestId", () => {
     expect(
-      resolveQueueIdempotencyKey({
-        requestId: "queue-req-1",
-        idempotencyKey: "idemp:client-key-abc:live",
-        ...samplePayload,
-      })
+      resolveQueueIdempotencyKey(
+        {
+          requestId: "queue-req-1",
+          idempotencyKey: "idemp:client-key-abc:live",
+          ...samplePayload,
+        },
+        FIXED_NOW_MS
+      )
     ).toBe("idemp:client-key-abc:live");
   });
 
   test("prefers requestId when idempotencyKey absent", () => {
     expect(
-      resolveQueueIdempotencyKey({
-        requestId: "queue-req-1",
-        ...samplePayload,
-      })
+      resolveQueueIdempotencyKey(
+        {
+          requestId: "queue-req-1",
+          ...samplePayload,
+        },
+        FIXED_NOW_MS
+      )
     ).toBe("idemp:queue:queue-req-1");
   });
 
-  test("falls back to fingerprint without requestId", () => {
-    expect(resolveQueueIdempotencyKey(samplePayload)).toBe(
-      "idemp:fp:binance:BTCUSDT:LONG:0.01:live"
+  test("falls back to fingerprint with time bucket without requestId", () => {
+    expect(resolveQueueIdempotencyKey(samplePayload, FIXED_NOW_MS)).toBe(
+      `idemp:fp:binance:BTCUSDT:LONG:0.01:live:${FIXED_BUCKET}`
     );
   });
 });

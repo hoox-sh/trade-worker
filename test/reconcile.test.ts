@@ -6,10 +6,50 @@
 import { describe, expect, it } from "bun:test";
 import {
   computePositionDiff,
+  mapPool,
   normalizeExchangePositions,
   reconcilePositions,
   type D1OpenPositionRow,
 } from "../src/reconcile";
+import type { IExchangeClient } from "../src/execution";
+
+function mockClient(
+  getPositions: () => Promise<unknown>
+): IExchangeClient {
+  return {
+    getPositions,
+    getAccountInfo: async () => ({}),
+    openLong: async () => ({}),
+    openShort: async () => ({}),
+    closeLong: async () => ({}),
+    closeShort: async () => ({}),
+  } as IExchangeClient;
+}
+
+describe("mapPool", () => {
+  it("preserves input order with bounded concurrency", async () => {
+    const started: number[] = [];
+    const maxInFlight = { n: 0, peak: 0 };
+    let inFlight = 0;
+
+    const out = await mapPool([1, 2, 3, 4, 5], 2, async (x) => {
+      started.push(x);
+      inFlight += 1;
+      maxInFlight.peak = Math.max(maxInFlight.peak, inFlight);
+      await new Promise((r) => setTimeout(r, 15));
+      inFlight -= 1;
+      return x * 10;
+    });
+
+    expect(out).toEqual([10, 20, 30, 40, 50]);
+    expect(maxInFlight.peak).toBeLessThanOrEqual(2);
+    expect(maxInFlight.peak).toBeGreaterThanOrEqual(2);
+  });
+
+  it("returns empty array for empty input", async () => {
+    expect(await mapPool([], 3, async (x) => x)).toEqual([]);
+  });
+});
 
 describe("normalizeExchangePositions", () => {
   it("maps Binance positionRisk signed amounts", () => {
@@ -220,20 +260,13 @@ describe("reconcilePositions", () => {
   });
 
   it("dry-run diffs with injected client", async () => {
-    const client = {
-      getPositions: async () => [
-        { symbol: "BTCUSDT", positionAmt: "0.1", entryPrice: "1" },
-      ],
-      getAccountInfo: async () => ({}),
-      openLong: async () => ({}),
-      openShort: async () => ({}),
-      closeLong: async () => ({}),
-      closeShort: async () => ({}),
-    };
+    const client = mockClient(async () => [
+      { symbol: "BTCUSDT", positionAmt: "0.1", entryPrice: "1" },
+    ]);
 
     const summary = await reconcilePositions({} as never, {
       exchanges: ["binance"],
-      clients: { binance: client as never },
+      clients: { binance: client },
       d1OpenRows: [
         {
           id: "binance-ETHUSDT-LONG",
@@ -251,5 +284,107 @@ describe("reconcilePositions", () => {
     expect(summary.exchanges[0]?.upserted).toBe(1); // new BTC open
     expect(summary.exchanges[0]?.closed).toBe(1); // ETH closed
     expect(summary.totals.upserted + summary.totals.closed).toBe(2);
+  });
+
+  it("runs independent exchanges in parallel and isolates failures", async () => {
+    let inFlight = 0;
+    let peak = 0;
+
+    const slowOk = mockClient(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      // Hold both successful fetches open so they overlap with each other / the failer.
+      await new Promise((r) => setTimeout(r, 40));
+      inFlight -= 1;
+      return [{ symbol: "BTCUSDT", positionAmt: "1", entryPrice: "1" }];
+    });
+
+    const failer = mockClient(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight -= 1;
+      throw new Error("exchange_down");
+    });
+
+    const bybitOk = mockClient(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 40));
+      inFlight -= 1;
+      return {
+        result: {
+          list: [
+            {
+              symbol: "ETHUSDT",
+              side: "Buy",
+              size: "2",
+              avgPrice: "3000",
+            },
+          ],
+        },
+      };
+    });
+
+    const t0 = Date.now();
+    const summary = await reconcilePositions({} as never, {
+      exchanges: ["binance", "mexc", "bybit"],
+      clients: {
+        binance: slowOk,
+        mexc: failer,
+        bybit: bybitOk,
+      },
+      d1OpenRows: [],
+      dryRun: true,
+    });
+    const elapsed = Date.now() - t0;
+
+    // Order matches requested exchanges
+    expect(summary.exchanges.map((e) => e.exchange)).toEqual([
+      "binance",
+      "mexc",
+      "bybit",
+    ]);
+    expect(summary.exchanges[0]).toMatchObject({
+      exchange: "binance",
+      status: "ok",
+      upserted: 1,
+    });
+    expect(summary.exchanges[1]).toMatchObject({
+      exchange: "mexc",
+      status: "error",
+      reason: expect.stringContaining("exchange_down"),
+    });
+    expect(summary.exchanges[2]).toMatchObject({
+      exchange: "bybit",
+      status: "ok",
+      upserted: 1,
+    });
+    // Fail-closed isolation: one error must not cancel other exchanges
+    expect(summary.totals.upserted).toBe(2);
+    expect(summary.totals.errors).toBeGreaterThanOrEqual(1);
+    // Overlapping fetches (not fully sequential ~80ms+ of 40+40)
+    expect(peak).toBeGreaterThanOrEqual(2);
+    expect(elapsed).toBeLessThan(100);
+  });
+
+  it("skips unsupported exchanges alongside successful ones", async () => {
+    const client = mockClient(async () => [
+      { symbol: "BTCUSDT", positionAmt: "0.5", entryPrice: "1" },
+    ]);
+    const summary = await reconcilePositions({} as never, {
+      exchanges: ["binance", "kraken"],
+      clients: { binance: client },
+      d1OpenRows: [],
+      dryRun: true,
+    });
+    expect(summary.exchanges).toEqual([
+      expect.objectContaining({ exchange: "binance", status: "ok" }),
+      expect.objectContaining({
+        exchange: "kraken",
+        status: "skipped",
+        reason: "unsupported_exchange",
+      }),
+    ]);
   });
 });

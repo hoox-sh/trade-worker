@@ -36,6 +36,36 @@ const logger = createLogger({ service: "trade-worker", module: "reconcile" });
 const SUPPORTED_EXCHANGES = ["binance", "bybit", "mexc"] as const;
 export type ReconcileExchange = (typeof SUPPORTED_EXCHANGES)[number];
 
+/** Max concurrent per-exchange position fetches / reconcile work. */
+const RECONCILE_EXCHANGE_CONCURRENCY = 3;
+
+/**
+ * Map items with a bounded concurrency pool. Results keep input order.
+ * Failures are not swallowed — callers should catch per-item if isolation is needed.
+ */
+export async function mapPool<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const n = items.length;
+  if (n === 0) return [];
+  const results = new Array<R>(n);
+  let next = 0;
+  const workers = Math.min(Math.max(1, concurrency), n);
+
+  async function worker(): Promise<void> {
+    while (true) {
+      const i = next++;
+      if (i >= n) return;
+      results[i] = await fn(items[i]!, i);
+    }
+  }
+
+  await Promise.all(Array.from({ length: workers }, () => worker()));
+  return results;
+}
+
 /** Canonical open position used for diffing. */
 export interface CanonicalPosition {
   exchange: string;
@@ -440,6 +470,112 @@ export function createReconcileClient(
   }
 }
 
+/** Reconcile a single exchange; never throws — failures become status "error". */
+async function reconcileOneExchange(
+  exchange: string,
+  env: Env,
+  ctx: {
+    testnet: boolean;
+    dryRun: boolean;
+    clients?: Partial<Record<string, IExchangeClient>>;
+    d1Open: D1OpenPositionRow[];
+  }
+): Promise<ExchangeReconcileResult> {
+  const { testnet, dryRun, clients, d1Open } = ctx;
+
+  if (!SUPPORTED_EXCHANGES.includes(exchange as ReconcileExchange)) {
+    return {
+      exchange,
+      status: "skipped",
+      reason: "unsupported_exchange",
+      exchangeOpen: 0,
+      d1OpenBefore: 0,
+      upserted: 0,
+      closed: 0,
+      unchanged: 0,
+      errors: [],
+    };
+  }
+
+  if (!clients?.[exchange] && !hasExchangeCredentials(exchange, env, testnet)) {
+    return {
+      exchange,
+      status: "skipped",
+      reason: "no_credentials",
+      exchangeOpen: 0,
+      d1OpenBefore: 0,
+      upserted: 0,
+      closed: 0,
+      unchanged: 0,
+      errors: [],
+    };
+  }
+
+  try {
+    const client =
+      clients?.[exchange] ?? createReconcileClient(exchange, env, testnet);
+
+    const raw = await client.getPositions();
+    const live = normalizeExchangePositions(exchange, raw);
+    const { upserts, unchanged } = computePositionDiff(
+      exchange,
+      live,
+      d1Open,
+      testnet
+    );
+
+    let upserted = 0;
+    let closed = 0;
+    const errors: string[] = [];
+
+    // Sequential D1 writes within an exchange (stable upsert order per exchange).
+    for (const row of upserts) {
+      if (dryRun) {
+        if (row.status === "CLOSED") closed += 1;
+        else upserted += 1;
+        continue;
+      }
+      try {
+        await upsertD1Position(env, row);
+        if (row.status === "CLOSED") closed += 1;
+        else upserted += 1;
+      } catch (e) {
+        errors.push(`${row.id}: ${toError(e)}`);
+      }
+    }
+
+    const d1OpenBefore = d1Open.filter(
+      (r) =>
+        r.exchange?.toLowerCase() === exchange &&
+        String(r.status).toUpperCase() === "OPEN" &&
+        (testnet ? r.id.includes("-testnet-") : !r.id.includes("-testnet-"))
+    ).length;
+
+    return {
+      exchange,
+      status: errors.length ? "error" : "ok",
+      exchangeOpen: live.length,
+      d1OpenBefore,
+      upserted,
+      closed,
+      unchanged,
+      errors,
+    };
+  } catch (e) {
+    return {
+      exchange,
+      status: "error",
+      reason: toError(e),
+      exchangeOpen: 0,
+      d1OpenBefore: 0,
+      upserted: 0,
+      closed: 0,
+      unchanged: 0,
+      errors: [toError(e)],
+    };
+  }
+}
+
 /**
  * Reconcile all configured exchanges against D1 open positions.
  */
@@ -483,106 +619,20 @@ export async function reconcilePositions(
     }
   }
 
-  const exchangeResults: ExchangeReconcileResult[] = [];
-
-  for (const exchange of wanted) {
-    if (!SUPPORTED_EXCHANGES.includes(exchange as ReconcileExchange)) {
-      exchangeResults.push({
-        exchange,
-        status: "skipped",
-        reason: "unsupported_exchange",
-        exchangeOpen: 0,
-        d1OpenBefore: 0,
-        upserted: 0,
-        closed: 0,
-        unchanged: 0,
-        errors: [],
-      });
-      continue;
-    }
-
-    if (
-      !options.clients?.[exchange] &&
-      !hasExchangeCredentials(exchange, env, testnet)
-    ) {
-      exchangeResults.push({
-        exchange,
-        status: "skipped",
-        reason: "no_credentials",
-        exchangeOpen: 0,
-        d1OpenBefore: 0,
-        upserted: 0,
-        closed: 0,
-        unchanged: 0,
-        errors: [],
-      });
-      continue;
-    }
-
-    try {
-      const client =
-        options.clients?.[exchange] ??
-        createReconcileClient(exchange, env, testnet);
-
-      const raw = await client.getPositions();
-      const live = normalizeExchangePositions(exchange, raw);
-      const { upserts, unchanged } = computePositionDiff(
-        exchange,
-        live,
+  // Independent exchanges: fetch + diff in parallel (bounded). D1 upserts stay
+  // sequential within each exchange; position IDs are namespaced by exchange so
+  // concurrent cross-exchange writes do not collide.
+  const exchangeResults = await mapPool(
+    wanted,
+    RECONCILE_EXCHANGE_CONCURRENCY,
+    (exchange) =>
+      reconcileOneExchange(exchange, env, {
+        testnet,
+        dryRun,
+        clients: options.clients,
         d1Open,
-        testnet
-      );
-
-      let upserted = 0;
-      let closed = 0;
-      const errors: string[] = [];
-
-      for (const row of upserts) {
-        if (dryRun) {
-          if (row.status === "CLOSED") closed += 1;
-          else upserted += 1;
-          continue;
-        }
-        try {
-          await upsertD1Position(env, row);
-          if (row.status === "CLOSED") closed += 1;
-          else upserted += 1;
-        } catch (e) {
-          errors.push(`${row.id}: ${toError(e)}`);
-        }
-      }
-
-      const d1OpenBefore = d1Open.filter(
-        (r) =>
-          r.exchange?.toLowerCase() === exchange &&
-          String(r.status).toUpperCase() === "OPEN" &&
-          (testnet ? r.id.includes("-testnet-") : !r.id.includes("-testnet-"))
-      ).length;
-
-      exchangeResults.push({
-        exchange,
-        status: errors.length ? "error" : "ok",
-        exchangeOpen: live.length,
-        d1OpenBefore,
-        upserted,
-        closed,
-        unchanged,
-        errors,
-      });
-    } catch (e) {
-      exchangeResults.push({
-        exchange,
-        status: "error",
-        reason: toError(e),
-        exchangeOpen: 0,
-        d1OpenBefore: 0,
-        upserted: 0,
-        closed: 0,
-        unchanged: 0,
-        errors: [toError(e)],
-      });
-    }
-  }
+      })
+  );
 
   const totals = exchangeResults.reduce(
     (acc, r) => ({

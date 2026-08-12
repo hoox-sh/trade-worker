@@ -16,6 +16,13 @@ const DEFAULT_TTL_SECONDS = 300;
 /** Shared namespace for all trade-worker idempotency KV keys. */
 const KEY_PREFIX = "idemp:trade:";
 
+/**
+ * Coarse time window for auto fingerprints (1 minute).
+ * Aligned with hoox-worker `generateIdempotencyKey` so gateway + trade-worker
+ * produce the same bucket when both mint fingerprints.
+ */
+export const FP_TIME_BUCKET_MS = 60_000;
+
 export type TradeIdempotencyPayload = {
   exchange: string;
   action: string;
@@ -34,15 +41,44 @@ function modeSuffix(test?: boolean): "live" | "test" {
 }
 
 /**
+ * Auto fingerprint when no client Idempotency-Key / X-Request-ID is present.
+ *
+ * Format: `idemp:fp:{exchange}:{symbol}:{action}:{quantity}:{mode}:{minuteBucket}`
+ *
+ * Tradeoff (documented intentionally):
+ * - A random nonce would defeat dedupe entirely and is NOT used.
+ * - Including a coarse per-minute time bucket (`floor(nowMs / 60_000)`) means
+ *   true retries (e.g. TradingView redelivery) within the same minute still
+ *   collide and are blocked as duplicates, while intentional same-size trades
+ *   in a later minute get a new key and are not accidentally blocked for the
+ *   full KV TTL (default 5 min).
+ * - Client-supplied keys are preferred and are not time-bucketed.
+ *
+ * @param nowMs - injectable clock for tests; defaults to Date.now()
+ */
+export function buildTradeFingerprint(
+  payload: Pick<
+    TradeIdempotencyPayload,
+    "exchange" | "symbol" | "action" | "quantity" | "test"
+  >,
+  nowMs: number = Date.now()
+): string {
+  const mode = modeSuffix(payload.test);
+  const bucket = Math.floor(nowMs / FP_TIME_BUCKET_MS);
+  return `idemp:fp:${payload.exchange}:${payload.symbol}:${payload.action}:${payload.quantity}:${mode}:${bucket}`;
+}
+
+/**
  * Resolve an idempotency key for HTTP ingress.
  * Prefer Idempotency-Key header, then X-Request-ID, else payload fingerprint.
  *
  * Client keys: `idemp:client:{key}:{live|test}`
- * Fingerprint: `idemp:fp:{exchange}:{symbol}:{action}:{quantity}:{mode}`
+ * Fingerprint: `idemp:fp:{exchange}:{symbol}:{action}:{quantity}:{mode}:{minuteBucket}`
  */
 export function resolveTradeIdempotencyKey(
   request: Request,
-  payload: TradeIdempotencyPayload
+  payload: TradeIdempotencyPayload,
+  nowMs: number = Date.now()
 ): string {
   const mode = modeSuffix(payload.test);
 
@@ -58,7 +94,7 @@ export function resolveTradeIdempotencyKey(
     return `idemp:client:${requestId}:${mode}`;
   }
 
-  return `idemp:fp:${payload.exchange}:${payload.symbol}:${payload.action}:${payload.quantity}:${mode}`;
+  return buildTradeFingerprint(payload, nowMs);
 }
 
 /**
@@ -66,16 +102,19 @@ export function resolveTradeIdempotencyKey(
  * Prefer gateway-resolved `idempotencyKey` when present (aligns with DO),
  * then `idemp:queue:{requestId}`, else payload fingerprint.
  */
-export function resolveQueueIdempotencyKey(trade: {
-  requestId?: string;
-  /** Gateway-resolved key (client or auto fingerprint) from TradeQueueMessage. */
-  idempotencyKey?: string;
-  exchange: string;
-  action: string;
-  symbol: string;
-  quantity: number;
-  test?: boolean;
-}): string {
+export function resolveQueueIdempotencyKey(
+  trade: {
+    requestId?: string;
+    /** Gateway-resolved key (client or auto fingerprint) from TradeQueueMessage. */
+    idempotencyKey?: string;
+    exchange: string;
+    action: string;
+    symbol: string;
+    quantity: number;
+    test?: boolean;
+  },
+  nowMs: number = Date.now()
+): string {
   const gatewayKey = trade.idempotencyKey?.trim();
   if (gatewayKey) {
     return gatewayKey;
@@ -84,8 +123,7 @@ export function resolveQueueIdempotencyKey(trade: {
   if (requestId) {
     return `idemp:queue:${requestId}`;
   }
-  const mode = modeSuffix(trade.test);
-  return `idemp:fp:${trade.exchange}:${trade.symbol}:${trade.action}:${trade.quantity}:${mode}`;
+  return buildTradeFingerprint(trade, nowMs);
 }
 
 /**

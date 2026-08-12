@@ -24,7 +24,8 @@
   },
   "observability": {
     "enabled": true,
-    "head_sampling_rate": 1.0,
+    // Safer top-level sampling now that request signature logging was removed
+    "head_sampling_rate": 0.1,
     "logs": { "enabled": true, "head_sampling_rate": 1 },
     "traces": { "enabled": true, "head_sampling_rate": 0.01 }
   },

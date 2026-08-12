@@ -116,8 +116,9 @@ export class ExchangeConnectionManager extends DurableObject {
         // Keep the DO alive on any incoming message (responses AND push
         // events from user data streams). The connection's overall
         // activity — not just our request/response traffic — proves
-        // the DO is in use.
-        this.ctx.storage.setAlarm(Date.now() + 60_000);
+        // the DO is in use. Event listeners cannot await; use waitUntil
+        // so hibernation does not drop the keepalive alarm.
+        this.ctx.waitUntil(this.ctx.storage.setAlarm(Date.now() + 60_000));
 
         const raw =
           typeof event === "object" && event !== null && "data" in event
@@ -146,7 +147,8 @@ export class ExchangeConnectionManager extends DurableObject {
         this.ws = null;
         this.ready = false;
         this.isConnecting = false;
-        this.ctx.storage.setAlarm(Date.now() + 5000); // Reconnect in 5s
+        // Event listener cannot await; waitUntil keeps the reconnect alarm.
+        this.ctx.waitUntil(this.ctx.storage.setAlarm(Date.now() + 5000)); // Reconnect in 5s
       });
 
       this.ws.addEventListener("error", (error) => {
@@ -165,13 +167,13 @@ export class ExchangeConnectionManager extends DurableObject {
       this.isConnecting = false;
 
       // Set initial alarm
-      this.ctx.storage.setAlarm(Date.now() + 60_000);
+      await this.ctx.storage.setAlarm(Date.now() + 60_000);
     } catch (err) {
       logger.error(`Failed to connect to ${this.exchange} WebSocket`, {
         error: err,
       });
       this.isConnecting = false;
-      this.ctx.storage.setAlarm(Date.now() + 10_000); // Try again in 10s
+      await this.ctx.storage.setAlarm(Date.now() + 10_000); // Try again in 10s
     }
   }
 
@@ -219,7 +221,7 @@ export class ExchangeConnectionManager extends DurableObject {
       await this.connectToExchange();
     } else {
       // We are connected, just push the alarm forward
-      this.ctx.storage.setAlarm(Date.now() + 60_000);
+      await this.ctx.storage.setAlarm(Date.now() + 60_000);
     }
   }
 
