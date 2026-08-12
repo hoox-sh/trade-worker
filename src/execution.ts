@@ -15,7 +15,10 @@ import {
   createJsonResponse,
   toError,
 } from "@hoox-sh/hoox-shared/errors";
-import { createLogger } from "@hoox-sh/hoox-shared/middleware";
+import {
+  createLogger,
+  safeWaitUntil,
+} from "@hoox-sh/hoox-shared/middleware";
 import type { WebhookPayload } from "@hoox-sh/hoox-shared/types";
 import { trackAnalytics } from "@hoox-sh/hoox-shared/analytics";
 import { KVKeys } from "@hoox-sh/hoox-shared/kvKeys";
@@ -104,7 +107,7 @@ interface ValidationResult {
  * Updates D1 database with trade and position records
  *
  * Both D1 writes (trades + positions) are dispatched via
- * `ctx.waitUntil(...)` so they run in the background after the
+ * `safeWaitUntil(...)` so they run in the background after the
  * HTTP response is sent. This is the key change for the
  * 2026-06-27 fastpath optimization: previously these writes
  * blocked the response (two awaited service-binding round-trips
@@ -199,9 +202,13 @@ export async function updateD1TradeRecords(
 
     if (ctx) {
       // Non-blocking: the response returns to the caller immediately
-      // while the D1 writes happen in the background. ctx.waitUntil
-      // keeps the worker alive until both writes settle.
-      ctx.waitUntil(Promise.all([tradeWrite, posWrite]));
+      // while the D1 writes happen in the background. safeWaitUntil
+      // keeps the worker alive until both writes settle and logs rejections.
+      safeWaitUntil(ctx, Promise.all([tradeWrite, posWrite]), (err) => {
+        logger.error("Background D1 trade/position writes failed", {
+          error: toError(err),
+        });
+      });
     } else {
       // Fallback for callers without an ExecutionContext (tests,
       // internal callers): block until the writes complete so we
@@ -549,7 +556,7 @@ export async function executeTrade(
     // Update D1 tables with trade and position data
     if (env.D1_SERVICE) {
       // Pass ctx so updateD1TradeRecords can dispatch the writes
-      // via ctx.waitUntil(...) instead of blocking the response.
+      // via safeWaitUntil(...) instead of blocking the response.
       await updateD1TradeRecords(
         env,
         result,
@@ -576,7 +583,8 @@ export async function executeTrade(
 
     // Track trade analytics (non-blocking)
     const latencyMs = Date.now() - startTime;
-    ctx.waitUntil(
+    safeWaitUntil(
+      ctx,
       trackAnalytics(env, "/track/trade", {
         payload: {
           exchange: routedExchange,
@@ -588,15 +596,16 @@ export async function executeTrade(
         },
         result: { success: true },
         latencyMs,
-      }).catch((err) =>
+      }),
+      (err) =>
         logger.error("trackAnalytics failed", { error: String(err) })
-      )
     );
 
     // Send notification via telegram-worker after trade execution (non-blocking)
     if (env.TELEGRAM_SERVICE) {
       const exchangeLabel = testnet ? `${routedExchange} [TEST]` : routedExchange;
-      ctx.waitUntil(
+      safeWaitUntil(
+        ctx,
         sendTradeNotificationToTelegram(
           env,
           result as { success?: boolean; result?: unknown; error?: string },
@@ -605,9 +614,9 @@ export async function executeTrade(
           quantity,
           symbol,
           dbLogId
-        ).catch((err) =>
+        ),
+        (err) =>
           logger.error("Send notification failed", { error: toError(err) })
-        )
       );
     }
 
@@ -634,7 +643,8 @@ export async function executeTrade(
 
     // Track failed trade analytics (non-blocking)
     const latencyMs = Date.now() - startTime;
-    ctx.waitUntil(
+    safeWaitUntil(
+      ctx,
       trackAnalytics(env, "/track/trade", {
         payload: {
           exchange: payload.exchange,
@@ -646,9 +656,9 @@ export async function executeTrade(
         },
         result: { success: false, error: errorMsg },
         latencyMs,
-      }).catch((err) =>
+      }),
+      (err) =>
         logger.error("trackAnalytics failed", { error: String(err) })
-      )
     );
 
     return tradeResult;

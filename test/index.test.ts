@@ -312,8 +312,8 @@ describe("Trade Worker - D1 Signals Endpoint (/api/signals)", () => {
           : fetchArg instanceof Request
             ? fetchArg.url
             : String(fetchArg);
-      // D1 query goes to /query with system_logs SQL
-      expect(String(fetchUrl)).toContain("/query");
+      // Named RPC for system_logs list (not free-form /query)
+      expect(String(fetchUrl)).toContain("/rpc/list-system-logs");
     });
 
     it("should return 400 for invalid limit", async () => {
@@ -375,6 +375,14 @@ describe("Trade Worker - D1 Signals Endpoint (/api/signals)", () => {
       expect(responseBody.success).toBe(true);
       expect(responseBody.result).toEqual(mockSignalResults);
       expect(mockEnv.D1_SERVICE.fetch).toHaveBeenCalledTimes(1);
+      const fetchArg = mockEnv.D1_SERVICE.fetch.mock.calls[0][0];
+      const fetchUrl =
+        typeof fetchArg === "string"
+          ? fetchArg
+          : fetchArg instanceof Request
+            ? fetchArg.url
+            : String(fetchArg);
+      expect(String(fetchUrl)).toContain("/rpc/list-signals");
     });
 
     it("should return signals with specified limit", async () => {

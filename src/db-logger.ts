@@ -34,7 +34,10 @@
 // Define Env structure expected by the logger
 // This should align with the Env interface in index.ts
 
-import { createLogger } from "@hoox-sh/hoox-shared/middleware";
+import {
+  createLogger,
+  safeWaitUntil,
+} from "@hoox-sh/hoox-shared/middleware";
 
 interface LoggerEnv {
   D1_SERVICE?: Fetcher;
@@ -175,13 +178,11 @@ export class DbLogger implements IDbLogger {
 
       if (ctx) {
         // Non-blocking: response returns immediately
-        ctx.waitUntil(
-          putPromise.catch((err) =>
-            console.error("R2 put failed", {
-              key: filename,
-              error: String(err),
-            })
-          )
+        safeWaitUntil(ctx, putPromise, (err) =>
+          console.error("R2 put failed", {
+            key: filename,
+            error: String(err),
+          })
         );
       } else {
         // Backward compatible: await the put
@@ -268,13 +269,11 @@ export class DbLogger implements IDbLogger {
 
       if (ctx) {
         // Non-blocking: response returns immediately
-        ctx.waitUntil(
-          putPromise.catch((err) =>
-            console.error("R2 put failed", {
-              key: filename,
-              error: String(err),
-            })
-          )
+        safeWaitUntil(ctx, putPromise, (err) =>
+          console.error("R2 put failed", {
+            key: filename,
+            error: String(err),
+          })
         );
         logger.info("Logged response for request ID", { requestId });
       } else {

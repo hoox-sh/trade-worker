@@ -47,7 +47,7 @@ export interface TradeSignalRecord {
 }
 
 /**
- * Response shape from d1-worker /query endpoint.
+ * Response shape from d1-worker named RPC /query endpoints.
  * Represents both success and error cases.
  */
 interface D1ServiceResponse {
@@ -56,47 +56,32 @@ interface D1ServiceResponse {
   changes?: number;
   lastRowId?: number;
   results?: unknown[];
+  limit?: number;
+  offset?: number;
 }
 
 // --- D1 Helper Functions ---
 
 /**
- * Sends a query to d1-worker via service binding and returns the raw response.
- */
-async function queryD1(
-  env: D1Env,
-  query: string,
-  params: unknown[] = []
-): Promise<D1ServiceResponse> {
-  if (!resolveInternalAuthKey(env, D1_READ_AUTH_KEY_FIELDS)) {
-    throw new Error("D1 read auth key not configured");
-  }
-
-  const response = await authenticatedServiceFetch(
-    env.D1_SERVICE,
-    env,
-    "/query",
-    { query, params },
-    { internalKeyFields: D1_READ_AUTH_KEY_FIELDS }
-  );
-
-  if (!response.ok) {
-    throw new Error(`D1_SERVICE responded with ${response.status}`);
-  }
-
-  return response.json() as Promise<D1ServiceResponse>;
-}
-
-/**
  * Call a named D1 RPC endpoint (fixed SQL templates on d1-worker).
+ * Prefer named /rpc/* over free-form /query for known hot paths.
+ * Use D1_READ_AUTH_KEY_FIELDS for list reads; write fields for inserts.
  */
 async function rpcD1(
   env: D1Env,
   path: string,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
+  keyFields:
+    | typeof D1_READ_AUTH_KEY_FIELDS
+    | typeof D1_WRITE_AUTH_KEY_FIELDS = D1_WRITE_AUTH_KEY_FIELDS
 ): Promise<D1ServiceResponse> {
-  if (!resolveInternalAuthKey(env, D1_WRITE_AUTH_KEY_FIELDS)) {
-    throw new Error("D1 write auth key not configured");
+  if (!resolveInternalAuthKey(env, keyFields)) {
+    const isRead = keyFields === D1_READ_AUTH_KEY_FIELDS;
+    throw new Error(
+      isRead
+        ? "D1 read auth key not configured"
+        : "D1 write auth key not configured"
+    );
   }
 
   const response = await authenticatedServiceFetch(
@@ -104,7 +89,7 @@ async function rpcD1(
     env,
     path,
     body,
-    { internalKeyFields: D1_WRITE_AUTH_KEY_FIELDS }
+    { internalKeyFields: keyFields }
   );
 
   if (!response.ok) {
@@ -188,21 +173,23 @@ export async function insertSignal(
 }
 
 /**
- * Retrieves recent trade signals from the D1 database (read still uses /query).
+ * Retrieves recent trade signals via named RPC `/rpc/list-signals`
+ * (fixed template; limit capped at 100 on d1-worker).
  */
 export async function getRecentSignals(
   env: D1Env,
-  limit: number = 10
+  limit: number = 10,
+  offset: number = 0
 ): Promise<TradeSignalRecord[]> {
   if (!env.D1_SERVICE) {
     throw new Error("D1_SERVICE binding not configured.");
   }
-  const query = `SELECT signal_id, timestamp, symbol, signal_type, source, processed_at 
-         FROM trade_signals 
-         ORDER BY processed_at DESC 
-         LIMIT ?`;
-
-  const data = await queryD1(env, query, [limit]);
+  const data = await rpcD1(
+    env,
+    "/rpc/list-signals",
+    { limit, offset },
+    D1_READ_AUTH_KEY_FIELDS
+  );
   if (!data.success) {
     throw new Error(data.error || "D1 getRecentSignals failed");
   }
@@ -359,21 +346,23 @@ export interface SystemLogRecord {
 }
 
 /**
- * Retrieves recent system_logs rows from D1 (SELECT via d1-worker /query).
+ * Retrieves recent system_logs via named RPC `/rpc/list-system-logs`
+ * (fixed template; limit capped at 100 on d1-worker).
  */
 export async function getRecentSystemLogs(
   env: D1Env,
-  limit: number = 20
+  limit: number = 20,
+  offset: number = 0
 ): Promise<SystemLogRecord[]> {
   if (!env.D1_SERVICE) {
     throw new Error("D1_SERVICE binding not configured.");
   }
-  const query = `SELECT id, timestamp, level, service, message, details
-         FROM system_logs
-         ORDER BY timestamp DESC
-         LIMIT ?`;
-
-  const data = await queryD1(env, query, [limit]);
+  const data = await rpcD1(
+    env,
+    "/rpc/list-system-logs",
+    { limit, offset },
+    D1_READ_AUTH_KEY_FIELDS
+  );
   if (!data.success) {
     throw new Error(data.error || "D1 getRecentSystemLogs failed");
   }

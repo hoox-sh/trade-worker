@@ -15,6 +15,7 @@ import {
   withRequestLog,
   validateJson,
   requireInternalAuth,
+  safeWaitUntil,
   type InternalAuthEnv,
 } from "@hoox-sh/hoox-shared/middleware";
 import { createRouter } from "@hoox-sh/hoox-shared/router";
@@ -372,12 +373,14 @@ function triggerReportSave(
 ): void {
   if (tradeResult.success) {
     logger.info(`[${requestId}] Trade successful, queueing report save to R2.`);
-    ctx.waitUntil(
-      saveReportToR2(tradeResult.result, payload, dbLogId, env).catch((e) => {
+    safeWaitUntil(
+      ctx,
+      saveReportToR2(tradeResult.result, payload, dbLogId, env),
+      (e) => {
         logger.error(`[${requestId}] Report save failed`, {
           error: toError(e),
         });
-      })
+      }
     );
   }
 }
@@ -617,7 +620,8 @@ async function handleWebhookRequest(
       const probeId = String(
         (payload as Record<string, unknown>).probe_id ?? ""
       );
-      ctx.waitUntil(
+      safeWaitUntil(
+        ctx,
         trackAnalytics(
           env,
           "/track/api-call",
@@ -628,7 +632,9 @@ async function handleWebhookRequest(
             success: true,
           },
           { indexes: [probeId] }
-        )
+        ),
+        (err) =>
+          logger.error("trackAnalytics failed", { error: String(err) })
       );
       const twHopMs = performance.now() - tHopStart;
       console.log(
@@ -723,15 +729,16 @@ async function handleWebhookRequest(
 
     // Track API call analytics (non-blocking)
     const webhookLatencyMs = Date.now() - startTime;
-    ctx.waitUntil(
+    safeWaitUntil(
+      ctx,
       trackAnalytics(env, "/track/api-call", {
         worker: "trade-worker",
         endpoint: "/webhook",
         latencyMs: webhookLatencyMs,
         success: tradeResult.success,
-      }).catch((err) =>
+      }),
+      (err) =>
         logger.error("trackAnalytics failed", { error: String(err) })
-      )
     );
 
     return tradeResponse;
@@ -909,15 +916,16 @@ async function handleProcessRequest(
 
     // Track API call analytics (non-blocking)
     const processLatencyMs = Date.now() - startTime;
-    ctx.waitUntil(
+    safeWaitUntil(
+      ctx,
       trackAnalytics(env, "/track/api-call", {
         worker: "trade-worker",
         endpoint: "/process",
         latencyMs: processLatencyMs,
         success: tradeResult.success,
-      }).catch((err) =>
+      }),
+      (err) =>
         logger.error("trackAnalytics failed", { error: String(err) })
-      )
     );
 
     return tradeResponse;
