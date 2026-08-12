@@ -85,10 +85,11 @@ describe("DbLogger", () => {
     expect(mockR2Put).toHaveBeenCalledTimes(1);
 
     const putCallArgs = mockR2Put.mock.calls[0];
+    if (!putCallArgs) throw new Error("expected put call");
     expect(putCallArgs[0]).toContain(`requests/`);
     expect(putCallArgs[0]).toContain(`${result}.json`);
 
-    const payload = JSON.parse(putCallArgs[1]);
+    const payload = JSON.parse(putCallArgs[1] as string);
     expect(payload.type).toBe("request");
     expect(payload.id).toBe(result);
     expect(payload.method).toBe("POST");
@@ -133,7 +134,9 @@ describe("DbLogger", () => {
     await logger.logRequest(request, body);
 
     expect(mockR2Put).toHaveBeenCalledTimes(1);
-    const stored = JSON.parse(mockR2Put.mock.calls[0][1] as string);
+    const firstPut = mockR2Put.mock.calls[0];
+    if (!firstPut) throw new Error("expected put call");
+    const stored = JSON.parse(firstPut[1] as string);
     expect(stored.headers["x-internal-auth-key"]).toBe("[REDACTED]");
     expect(stored.headers["authorization"]).toBe("[REDACTED]");
     expect(stored.body.internalAuthKey).toBe("[REDACTED]");
@@ -176,10 +179,11 @@ describe("DbLogger", () => {
     expect(mockR2Put).toHaveBeenCalledTimes(1);
 
     const putCallArgs = mockR2Put.mock.calls[0];
+    if (!putCallArgs) throw new Error("expected put call");
     expect(putCallArgs[0]).toContain(`responses/`);
     expect(putCallArgs[0]).toContain(`${requestId}.json`);
 
-    const payload = JSON.parse(putCallArgs[1]);
+    const payload = JSON.parse(putCallArgs[1] as string);
     expect(payload.type).toBe("response");
     expect(payload.request_id).toBe(requestId);
     expect(payload.status_code).toBe(responseStatus);
@@ -195,7 +199,8 @@ describe("DbLogger", () => {
 
     expect(mockR2Put).toHaveBeenCalledTimes(1);
     const putCallArgs = mockR2Put.mock.calls[0];
-    const payload = JSON.parse(putCallArgs[1]);
+    if (!putCallArgs) throw new Error("expected put call");
+    const payload = JSON.parse(putCallArgs[1] as string);
     expect(payload.error).toBe(error.toString());
   });
 

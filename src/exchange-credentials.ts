@@ -6,21 +6,50 @@
 /**
  * Resolve exchange API credentials for live or testnet trading.
  *
- * When `testnet` is true, prefer dedicated `*_TESTNET_*` secret bindings
- * if both key and secret are present; otherwise fall back to the live
- * bindings (legacy shared-key deployments).
+ * Preferred (unified) secrets — one key/secret pair for whichever exchange
+ * the operator trades on (selected via signal/routing, not via secret name):
+ *   EXCHANGE_KEY_BINDING / EXCHANGE_SECRET_BINDING
+ * Optional testnet pair:
+ *   EXCHANGE_TESTNET_KEY_BINDING / EXCHANGE_TESTNET_SECRET_BINDING
+ *
+ * Legacy per-exchange bindings (BINANCE_*, BYBIT_*, MEXC_*) remain as
+ * fallbacks so existing deployments keep working until secrets are migrated.
  */
 
+/** Canonical unified secret names (trade-worker wrangler / CLI catalogs). */
+export const EXCHANGE_KEY_BINDING = "EXCHANGE_KEY_BINDING" as const;
+export const EXCHANGE_SECRET_BINDING = "EXCHANGE_SECRET_BINDING" as const;
+export const EXCHANGE_TESTNET_KEY_BINDING =
+  "EXCHANGE_TESTNET_KEY_BINDING" as const;
+export const EXCHANGE_TESTNET_SECRET_BINDING =
+  "EXCHANGE_TESTNET_SECRET_BINDING" as const;
+
 export interface CredentialEnv {
+  /** Unified live API key (preferred). */
+  EXCHANGE_KEY_BINDING?: string;
+  EXCHANGE_SECRET_BINDING?: string;
+  /** Unified testnet API key (preferred when test:true). */
+  EXCHANGE_TESTNET_KEY_BINDING?: string;
+  EXCHANGE_TESTNET_SECRET_BINDING?: string;
+  /** @deprecated Prefer EXCHANGE_KEY_BINDING */
   BINANCE_KEY_BINDING?: string;
+  /** @deprecated Prefer EXCHANGE_SECRET_BINDING */
   BINANCE_SECRET_BINDING?: string;
+  /** @deprecated Prefer EXCHANGE_TESTNET_KEY_BINDING */
   BINANCE_TESTNET_KEY_BINDING?: string;
+  /** @deprecated Prefer EXCHANGE_TESTNET_SECRET_BINDING */
   BINANCE_TESTNET_SECRET_BINDING?: string;
+  /** @deprecated Prefer EXCHANGE_KEY_BINDING */
   BYBIT_KEY_BINDING?: string;
+  /** @deprecated Prefer EXCHANGE_SECRET_BINDING */
   BYBIT_SECRET_BINDING?: string;
+  /** @deprecated Prefer EXCHANGE_TESTNET_KEY_BINDING */
   BYBIT_TESTNET_KEY_BINDING?: string;
+  /** @deprecated Prefer EXCHANGE_TESTNET_SECRET_BINDING */
   BYBIT_TESTNET_SECRET_BINDING?: string;
+  /** @deprecated Prefer EXCHANGE_KEY_BINDING */
   MEXC_KEY_BINDING?: string;
+  /** @deprecated Prefer EXCHANGE_SECRET_BINDING */
   MEXC_SECRET_BINDING?: string;
 }
 
@@ -41,6 +70,8 @@ function pair(
   return null;
 }
 
+const SUPPORTED = new Set(["binance", "bybit", "mexc"]);
+
 /**
  * Returns true when the exchange has usable credentials for the requested mode.
  * Testnet mode accepts either dedicated testnet keys or live-key fallback.
@@ -55,6 +86,16 @@ export function hasExchangeCredentials(
 
 /**
  * Resolve key/secret for an exchange. Returns null when nothing usable is set.
+ *
+ * Order (testnet=true):
+ *   1. Unified EXCHANGE_TESTNET_*
+ *   2. Legacy per-exchange TESTNET_* (binance/bybit only)
+ *   3. Unified EXCHANGE_* (live fallback)
+ *   4. Legacy per-exchange live bindings
+ *
+ * Order (testnet=false):
+ *   1. Unified EXCHANGE_*
+ *   2. Legacy per-exchange live bindings
  */
 export function resolveExchangeCredentials(
   exchange: string,
@@ -62,36 +103,58 @@ export function resolveExchangeCredentials(
   testnet = false
 ): ResolvedCredentials | null {
   const ex = exchange.toLowerCase();
+  if (!SUPPORTED.has(ex)) return null;
 
+  if (testnet) {
+    const unifiedTn = pair(
+      env.EXCHANGE_TESTNET_KEY_BINDING,
+      env.EXCHANGE_TESTNET_SECRET_BINDING
+    );
+    if (unifiedTn) return { ...unifiedTn, source: "testnet" };
+
+    const legacyTn = resolveLegacyTestnet(ex, env);
+    if (legacyTn) return { ...legacyTn, source: "testnet" };
+  }
+
+  const unifiedLive = pair(
+    env.EXCHANGE_KEY_BINDING,
+    env.EXCHANGE_SECRET_BINDING
+  );
+  if (unifiedLive) return { ...unifiedLive, source: "live" };
+
+  const legacyLive = resolveLegacyLive(ex, env);
+  return legacyLive ? { ...legacyLive, source: "live" } : null;
+}
+
+function resolveLegacyTestnet(
+  ex: string,
+  env: CredentialEnv
+): { apiKey: string; apiSecret: string } | null {
   if (ex === "binance") {
-    if (testnet) {
-      const dedicated = pair(
-        env.BINANCE_TESTNET_KEY_BINDING,
-        env.BINANCE_TESTNET_SECRET_BINDING
-      );
-      if (dedicated) return { ...dedicated, source: "testnet" };
-    }
-    const live = pair(env.BINANCE_KEY_BINDING, env.BINANCE_SECRET_BINDING);
-    return live ? { ...live, source: "live" } : null;
+    return pair(
+      env.BINANCE_TESTNET_KEY_BINDING,
+      env.BINANCE_TESTNET_SECRET_BINDING
+    );
   }
-
   if (ex === "bybit") {
-    if (testnet) {
-      const dedicated = pair(
-        env.BYBIT_TESTNET_KEY_BINDING,
-        env.BYBIT_TESTNET_SECRET_BINDING
-      );
-      if (dedicated) return { ...dedicated, source: "testnet" };
-    }
-    const live = pair(env.BYBIT_KEY_BINDING, env.BYBIT_SECRET_BINDING);
-    return live ? { ...live, source: "live" } : null;
+    return pair(env.BYBIT_TESTNET_KEY_BINDING, env.BYBIT_TESTNET_SECRET_BINDING);
   }
+  // MEXC has no public REST testnet
+  return null;
+}
 
+function resolveLegacyLive(
+  ex: string,
+  env: CredentialEnv
+): { apiKey: string; apiSecret: string } | null {
+  if (ex === "binance") {
+    return pair(env.BINANCE_KEY_BINDING, env.BINANCE_SECRET_BINDING);
+  }
+  if (ex === "bybit") {
+    return pair(env.BYBIT_KEY_BINDING, env.BYBIT_SECRET_BINDING);
+  }
   if (ex === "mexc") {
-    // MEXC has no public REST testnet — only live bindings.
-    const live = pair(env.MEXC_KEY_BINDING, env.MEXC_SECRET_BINDING);
-    return live ? { ...live, source: "live" } : null;
+    return pair(env.MEXC_KEY_BINDING, env.MEXC_SECRET_BINDING);
   }
-
   return null;
 }

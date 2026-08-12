@@ -62,7 +62,10 @@ export { ExchangeConnectionManager };
 
 export interface Env extends Cloudflare.Env {
   EXCHANGE_CONNECTION_MANAGER: DurableObjectNamespace<ExchangeConnectionManager>;
-  /** Optional dedicated testnet API keys (preferred when payload.test is true). */
+  /** Optional unified testnet keys (preferred when payload.test is true). */
+  EXCHANGE_TESTNET_KEY_BINDING?: string;
+  EXCHANGE_TESTNET_SECRET_BINDING?: string;
+  /** @deprecated Prefer EXCHANGE_TESTNET_* */
   BINANCE_TESTNET_KEY_BINDING?: string;
   BINANCE_TESTNET_SECRET_BINDING?: string;
   BYBIT_TESTNET_KEY_BINDING?: string;

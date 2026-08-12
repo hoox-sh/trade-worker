@@ -99,7 +99,9 @@ describe("saveReportToR2", () => {
 
     expect(mockPut).toHaveBeenCalledTimes(1);
 
-    const filename = mockPut.mock.calls[0][0] as string;
+    const put0 = mockPut.mock.calls[0];
+    if (!put0) throw new Error("expected put call");
+    const filename = put0[0] as string;
     // Format: trade-reports/{exchange}/{symbol}/{timestamp}-{id}.json
     expect(filename).toMatch(
       /^trade-reports\/binance\/BTCUSDT\/.+-db-log-abc-456\.json$/
@@ -124,7 +126,9 @@ describe("saveReportToR2", () => {
 
     expect(mockPut).toHaveBeenCalledTimes(1);
 
-    const content = JSON.parse(mockPut.mock.calls[0][1] as string);
+    const putContent = mockPut.mock.calls[0];
+    if (!putContent) throw new Error("expected put call");
+    const content = JSON.parse(putContent[1] as string);
 
     // Verify all four fields exist
     expect(content).toHaveProperty("timestamp");
@@ -154,7 +158,9 @@ describe("saveReportToR2", () => {
     expect(mockPut).toHaveBeenCalledTimes(1);
 
     // Third argument is the R2PutOptions
-    const options = mockPut.mock.calls[0][2] as any;
+    const putOpts = mockPut.mock.calls[0];
+    if (!putOpts) throw new Error("expected put call");
+    const options = putOpts[2] as any;
     expect(options).toBeDefined();
     expect(options.httpMetadata).toBeDefined();
     expect(options.httpMetadata.contentType).toBe("application/json");
@@ -372,7 +378,7 @@ describe("handleGetReportRequest", () => {
 
     // Verify get was called with the key
     expect(mockGet).toHaveBeenCalledTimes(1);
-    expect(mockGet.mock.calls[0][0]).toContain("nonexistent.json");
+    expect(mockGet.mock.calls[0]?.[0]).toContain("nonexistent.json");
   });
 
   // --------------------------------------------------------------------------

@@ -11,6 +11,7 @@ import { BybitClient } from "./bybit-client";
 import { MexcClient } from "./mexc-client";
 import type { WebhookPayload } from "@hoox-sh/hoox-shared/types";
 import type { TradeExecutionResult } from "./execution";
+import { resolveExchangeCredentials } from "./exchange-credentials";
 import { getAdapter } from "./wsAdapters/adapters";
 import type { IWsAdapter } from "./wsAdapters/types";
 
@@ -39,10 +40,12 @@ export class ExchangeConnectionManager extends DurableObject {
     this.exchange = this.deriveExchange(ctx);
 
     // Load the configured adapter for this exchange, if creds are available.
-    const apiKey = readApiKey(env, this.exchange);
-    const apiSecret = readApiSecret(env, this.exchange);
-    if (apiKey && apiSecret) {
-      this.adapter = getAdapter(this.exchange, { apiKey, apiSecret });
+    const creds = resolveExchangeCredentials(this.exchange, env, false);
+    if (creds) {
+      this.adapter = getAdapter(this.exchange, {
+        apiKey: creds.apiKey,
+        apiSecret: creds.apiSecret,
+      });
       if (!this.adapter) {
         logger.warn(
           `No WS adapter registered for "${this.exchange}"; DO is REST-only`
@@ -65,7 +68,7 @@ export class ExchangeConnectionManager extends DurableObject {
   private deriveExchange(ctx: DurableObjectState): string {
     const name = ctx.id.name ?? "";
     const m = name.match(/^exchange:(.+)$/);
-    return m ? m[1] : "binance";
+    return m?.[1] ?? "binance";
   }
 
   async connectToExchange() {
@@ -258,10 +261,9 @@ export class ExchangeConnectionManager extends DurableObject {
       };
     }
 
-    const apiKey = readApiKey(env, this.exchange, testnet);
-    const apiSecret = readApiSecret(env, this.exchange, testnet);
+    const creds = resolveExchangeCredentials(this.exchange, env, testnet);
 
-    if (!apiKey || !apiSecret) {
+    if (!creds) {
       return {
         success: false,
         error: `Missing ${this.exchange}${testnet ? " testnet" : ""} credentials`,
@@ -269,7 +271,9 @@ export class ExchangeConnectionManager extends DurableObject {
       };
     }
 
-    const client = this.createRestClient(apiKey, apiSecret, { testnet });
+    const client = this.createRestClient(creds.apiKey, creds.apiSecret, {
+      testnet,
+    });
     if (!client) {
       return {
         success: false,
@@ -334,76 +338,4 @@ export class ExchangeConnectionManager extends DurableObject {
   }
 }
 
-/**
- * Read the API key env binding for the given exchange.
- * When testnet is true, prefer dedicated testnet bindings.
- * Returns "" if the binding is missing.
- */
-function readApiKey(env: Env, exchange: string, testnet = false): string {
-  if (testnet) {
-    switch (exchange) {
-      case "bybit":
-        return (
-          env.BYBIT_TESTNET_KEY_BINDING ||
-          env.BYBIT_KEY_BINDING ||
-          ""
-        );
-      case "binance":
-        return (
-          env.BINANCE_TESTNET_KEY_BINDING ||
-          env.BINANCE_KEY_BINDING ||
-          ""
-        );
-      case "mexc":
-        return env.MEXC_KEY_BINDING ?? "";
-      default:
-        return "";
-    }
-  }
-  switch (exchange) {
-    case "bybit":
-      return env.BYBIT_KEY_BINDING ?? "";
-    case "mexc":
-      return env.MEXC_KEY_BINDING ?? "";
-    case "binance":
-    default:
-      return env.BINANCE_KEY_BINDING ?? "";
-  }
-}
 
-/**
- * Read the API secret env binding for the given exchange.
- * When testnet is true, prefer dedicated testnet bindings.
- * Returns "" if the binding is missing.
- */
-function readApiSecret(env: Env, exchange: string, testnet = false): string {
-  if (testnet) {
-    switch (exchange) {
-      case "bybit":
-        return (
-          env.BYBIT_TESTNET_SECRET_BINDING ||
-          env.BYBIT_SECRET_BINDING ||
-          ""
-        );
-      case "binance":
-        return (
-          env.BINANCE_TESTNET_SECRET_BINDING ||
-          env.BINANCE_SECRET_BINDING ||
-          ""
-        );
-      case "mexc":
-        return env.MEXC_SECRET_BINDING ?? "";
-      default:
-        return "";
-    }
-  }
-  switch (exchange) {
-    case "bybit":
-      return env.BYBIT_SECRET_BINDING ?? "";
-    case "mexc":
-      return env.MEXC_SECRET_BINDING ?? "";
-    case "binance":
-    default:
-      return env.BINANCE_SECRET_BINDING ?? "";
-  }
-}

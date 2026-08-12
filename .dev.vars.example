@@ -12,17 +12,20 @@ INTERNAL_KEY_BINDING=your_internal_key_binding_here
 # Telegram internal key for sending trade notifications
 TELEGRAM_INTERNAL_KEY_BINDING=your_telegram_internal_key_here
 
-# Exchange API keys (required for trade execution)
-# MEXC_KEY_BINDING=your_mexc_api_key_here
-# MEXC_SECRET_BINDING=your_mexc_api_secret_here
-# BINANCE_KEY_BINDING=your_binance_api_key_here
-# BINANCE_SECRET_BINDING=your_binance_api_secret_here
-# BYBIT_KEY_BINDING=your_bybit_api_key_here
-# BYBIT_SECRET_BINDING=your_bybit_api_secret_here
+# Unified exchange API credentials (one pair for Binance / Bybit / MEXC).
+# Venue is selected by the signal payload / routing config — not by secret name.
+EXCHANGE_KEY_BINDING=your_exchange_api_key_here
+EXCHANGE_SECRET_BINDING=your_exchange_api_secret_here
 
 # Optional dedicated testnet keys (preferred when webhook has "test": true)
-# Falls back to live BINANCE_*/BYBIT_* bindings if unset.
-# BINANCE_TESTNET_KEY_BINDING=your_binance_testnet_api_key_here
-# BINANCE_TESTNET_SECRET_BINDING=your_binance_testnet_api_secret_here
-# BYBIT_TESTNET_KEY_BINDING=your_bybit_testnet_api_key_here
-# BYBIT_TESTNET_SECRET_BINDING=your_bybit_testnet_api_secret_here
+# Falls back to EXCHANGE_* live bindings if unset.
+# EXCHANGE_TESTNET_KEY_BINDING=your_exchange_testnet_api_key_here
+# EXCHANGE_TESTNET_SECRET_BINDING=your_exchange_testnet_api_secret_here
+
+# Legacy per-venue bindings still work as fallbacks if set (deprecated):
+# BINANCE_KEY_BINDING=...
+# BINANCE_SECRET_BINDING=...
+# BYBIT_KEY_BINDING=...
+# BYBIT_SECRET_BINDING=...
+# MEXC_KEY_BINDING=...
+# MEXC_SECRET_BINDING=...

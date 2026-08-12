@@ -247,9 +247,9 @@ describe("reconcilePositions", () => {
       dryRun: true,
     });
 
-    expect(summary.exchanges[0].status).toBe("ok");
-    expect(summary.exchanges[0].upserted).toBe(1); // new BTC open
-    expect(summary.exchanges[0].closed).toBe(1); // ETH closed
+    expect(summary.exchanges[0]?.status).toBe("ok");
+    expect(summary.exchanges[0]?.upserted).toBe(1); // new BTC open
+    expect(summary.exchanges[0]?.closed).toBe(1); // ETH closed
     expect(summary.totals.upserted + summary.totals.closed).toBe(2);
   });
 });

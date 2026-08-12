@@ -5,7 +5,8 @@
     "moduleResolution": "Bundler", // Modern module resolution for bundlers
     "lib": ["ES2022"], // Include libraries for modern JS features
     "jsx": "react-jsx", // Standard JSX processing (harmless if unused)
-    "strict": true, // Enable all strict type-checking options
+    "strict": true,
+    "noUncheckedIndexedAccess": true, // Enable all strict type-checking options
     "esModuleInterop": true, // Improve compatibility between CJS and ESM
     "skipLibCheck": true, // Skip type checking of declaration files
     "forceConsistentCasingInFileNames": true, // Enforce consistent file naming

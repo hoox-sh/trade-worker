@@ -31,10 +31,11 @@
   // NOTE: All secrets set via `wrangler secret put <NAME>`.
   // Never commit actual secret values.
   "vars": {
-    // Secrets - create via: wrangler secret put INTERNAL_KEY_BINDING
-    // wrangler secret put MEXC_KEY_BINDING && MEXC_SECRET_BINDING
-    // wrangler secret put BINANCE_KEY_BINDING && BINANCE_SECRET_BINDING
-    // wrangler secret put BYBIT_KEY_BINDING && BYBIT_SECRET_BINDING
+    // Mesh: wrangler secret put INTERNAL_KEY_BINDING
+    // Unified exchange API (Binance / Bybit / MEXC — venue via routing/signal):
+    //   wrangler secret put EXCHANGE_KEY_BINDING
+    //   wrangler secret put EXCHANGE_SECRET_BINDING
+    // Optional testnet: EXCHANGE_TESTNET_KEY_BINDING / EXCHANGE_TESTNET_SECRET_BINDING
     // wrangler secret put TELEGRAM_INTERNAL_KEY_BINDING
   },
   "services": [

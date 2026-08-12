@@ -12,12 +12,17 @@ interface __BaseEnv_Env {
 	SYSTEM_LOGS_BUCKET: R2Bucket;
 	INTERNAL_KEY_BINDING: "__SECRET__";
 	TELEGRAM_INTERNAL_KEY_BINDING: "__SECRET__";
-	BINANCE_KEY_BINDING: string;
-	BINANCE_SECRET_BINDING: string;
-	BYBIT_KEY_BINDING: string;
-	BYBIT_SECRET_BINDING: string;
-	MEXC_KEY_BINDING: string;
-	MEXC_SECRET_BINDING: string;
+	EXCHANGE_KEY_BINDING: string;
+	EXCHANGE_SECRET_BINDING: string;
+	EXCHANGE_TESTNET_KEY_BINDING?: string;
+	EXCHANGE_TESTNET_SECRET_BINDING?: string;
+	/** @deprecated Prefer EXCHANGE_KEY_BINDING */
+	BINANCE_KEY_BINDING?: string;
+	BINANCE_SECRET_BINDING?: string;
+	BYBIT_KEY_BINDING?: string;
+	BYBIT_SECRET_BINDING?: string;
+	MEXC_KEY_BINDING?: string;
+	MEXC_SECRET_BINDING?: string;
 	TG_BOT_TOKEN_BINDING: string;
 	AGENT_INTERNAL_KEY: string;
 	WALLET_MNEMONIC_SECRET: string;
@@ -37,7 +42,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "INTERNAL_KEY_BINDING" | "TELEGRAM_INTERNAL_KEY_BINDING" | "BINANCE_KEY_BINDING" | "BINANCE_SECRET_BINDING" | "BYBIT_KEY_BINDING" | "BYBIT_SECRET_BINDING" | "MEXC_KEY_BINDING" | "MEXC_SECRET_BINDING" | "TG_BOT_TOKEN_BINDING" | "AGENT_INTERNAL_KEY" | "WALLET_MNEMONIC_SECRET" | "WALLET_PK_SECRET">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "INTERNAL_KEY_BINDING" | "TELEGRAM_INTERNAL_KEY_BINDING" | "EXCHANGE_KEY_BINDING" | "EXCHANGE_SECRET_BINDING" | "TG_BOT_TOKEN_BINDING" | "AGENT_INTERNAL_KEY" | "WALLET_MNEMONIC_SECRET" | "WALLET_PK_SECRET">> {}
 }
 
 // Begin runtime types

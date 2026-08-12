@@ -24,6 +24,7 @@ import {
   KILL_SWITCH_ACTIVE_PREFIX,
 } from "@hoox-sh/hoox-shared/kill-switch";
 import type { IDbLogger } from "./db-logger";
+import { hasExchangeCredentials } from "./exchange-credentials";
 import { ExchangeRouter, type Env } from "./exchange-router";
 import { sendTradeNotificationToTelegram } from "./notifications";
 
@@ -45,16 +46,20 @@ export interface ExecutionEnv {
   INTERNAL_KEY_BINDING?: string;
   TELEGRAM_SERVICE?: Fetcher;
   TELEGRAM_INTERNAL_KEY_BINDING?: string;
+  /** Unified exchange API key (preferred for all venues). */
+  EXCHANGE_KEY_BINDING?: string;
+  EXCHANGE_SECRET_BINDING?: string;
+  EXCHANGE_TESTNET_KEY_BINDING?: string;
+  EXCHANGE_TESTNET_SECRET_BINDING?: string;
+  /** @deprecated Prefer EXCHANGE_KEY_BINDING */
   MEXC_KEY_BINDING?: string;
   MEXC_SECRET_BINDING?: string;
   BINANCE_KEY_BINDING?: string;
   BINANCE_SECRET_BINDING?: string;
-  /** Optional dedicated Binance Futures testnet key (preferred when test:true). */
   BINANCE_TESTNET_KEY_BINDING?: string;
   BINANCE_TESTNET_SECRET_BINDING?: string;
   BYBIT_KEY_BINDING?: string;
   BYBIT_SECRET_BINDING?: string;
-  /** Optional dedicated Bybit testnet key (preferred when test:true). */
   BYBIT_TESTNET_KEY_BINDING?: string;
   BYBIT_TESTNET_SECRET_BINDING?: string;
 }
@@ -212,28 +217,13 @@ export async function updateD1TradeRecords(
 
 /**
  * Checks if API credentials seem configured for a given exchange.
+ * Uses unified EXCHANGE_* secrets (with legacy per-venue fallback).
  */
 export function validateApiCredentials(
   exchange: string,
   env: ExecutionEnv
 ): boolean {
-  const checkBinding = (
-    keyBinding?: string,
-    secretBinding?: string
-  ): boolean => {
-    return !!keyBinding && !!secretBinding;
-  };
-
-  switch (exchange.toLowerCase()) {
-    case "mexc":
-      return checkBinding(env.MEXC_KEY_BINDING, env.MEXC_SECRET_BINDING);
-    case "binance":
-      return checkBinding(env.BINANCE_KEY_BINDING, env.BINANCE_SECRET_BINDING);
-    case "bybit":
-      return checkBinding(env.BYBIT_KEY_BINDING, env.BYBIT_SECRET_BINDING);
-    default:
-      return false;
-  }
+  return hasExchangeCredentials(exchange, env, false);
 }
 
 /**
@@ -484,7 +474,7 @@ export async function executeTrade(
     if (testnet) {
       if (credentialSource === "live") {
         logger.warn(
-          "Test trading with live API key bindings against testnet hosts. Prefer BINANCE_TESTNET_* / BYBIT_TESTNET_* secrets.",
+          "Test trading with live API key bindings against testnet hosts. Prefer EXCHANGE_TESTNET_KEY_BINDING / EXCHANGE_TESTNET_SECRET_BINDING.",
           { exchange: routedExchange, symbol, action }
         );
       } else {

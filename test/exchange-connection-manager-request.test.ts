@@ -83,7 +83,7 @@ function createMockCtx() {
         return out;
       },
       getAlarm: async (): Promise<number | null> =>
-        alarms.length > 0 ? alarms[alarms.length - 1] : null,
+        alarms.length > 0 ? (alarms[alarms.length - 1] ?? null) : null,
       setAlarm: async (scheduledTime: number): Promise<void> => {
         alarms.push(scheduledTime);
       },

@@ -52,10 +52,10 @@ describe("Trade Worker - Queue Consumer", () => {
   });
 
   test("should have increasing backoff delays", () => {
-    expect(BACKOFF_DELAYS[1] > BACKOFF_DELAYS[0]).toBe(true);
-    expect(BACKOFF_DELAYS[2] > BACKOFF_DELAYS[1]).toBe(true);
-    expect(BACKOFF_DELAYS[3] > BACKOFF_DELAYS[2]).toBe(true);
-    expect(BACKOFF_DELAYS[4] > BACKOFF_DELAYS[3]).toBe(true);
+    expect((BACKOFF_DELAYS[1] ?? 0) > (BACKOFF_DELAYS[0] ?? 0)).toBe(true);
+    expect((BACKOFF_DELAYS[2] ?? 0) > (BACKOFF_DELAYS[1] ?? 0)).toBe(true);
+    expect((BACKOFF_DELAYS[3] ?? 0) > (BACKOFF_DELAYS[2] ?? 0)).toBe(true);
+    expect((BACKOFF_DELAYS[4] ?? 0) > (BACKOFF_DELAYS[3] ?? 0)).toBe(true);
   });
 
   test("should contain expected delay values", () => {
@@ -133,9 +133,9 @@ describe("Trade Worker - Queue Retry Logic", () => {
 
     const calculateBackoff = (attemptNumber: number): number => {
       if (attemptNumber < 0 || attemptNumber >= BACKOFF_DELAYS.length) {
-        return BACKOFF_DELAYS[BACKOFF_DELAYS.length - 1];
+        return BACKOFF_DELAYS[BACKOFF_DELAYS.length - 1] ?? 900;
       }
-      return BACKOFF_DELAYS[attemptNumber];
+      return BACKOFF_DELAYS[attemptNumber] ?? 900;
     };
 
     // Verify exponential growth

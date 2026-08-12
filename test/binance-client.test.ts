@@ -164,6 +164,7 @@ describe("BinanceClient", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
     const fetchCall = mockFetch.mock.calls[0];
+    if (!fetchCall) throw new Error("expected fetch call");
     const url = new URL(fetchCall[0] as string); // Assert as string
     expect(url.origin + url.pathname).toBe(`${BASE_URL}${path}`);
     expect(url.searchParams.has("timestamp")).toBe(true);
@@ -198,6 +199,7 @@ describe("BinanceClient", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
 
     const fetchCall = mockFetch.mock.calls[0];
+    if (!fetchCall) throw new Error("expected fetch call");
     const url = new URL(fetchCall[0] as string);
     expect(url.origin + url.pathname).toBe(`${BASE_URL}${path}`);
     expect(url.searchParams.get("symbol")).toBe(params.symbol);

@@ -129,7 +129,7 @@ function createMockCtx() {
         return out;
       },
       getAlarm: async (): Promise<number | null> =>
-        alarms.length > 0 ? alarms[alarms.length - 1] : null,
+        alarms.length > 0 ? (alarms[alarms.length - 1] ?? null) : null,
       setAlarm: async (scheduledTime: number): Promise<void> => {
         alarms.push(scheduledTime);
       },
@@ -196,6 +196,7 @@ describe("ExchangeConnectionManager", () => {
     const alarms = mockCtx.getAlarms();
     expect(alarms.length).toBeGreaterThan(0);
     const lastAlarm = alarms[alarms.length - 1];
+    if (lastAlarm === undefined) throw new Error("expected alarm");
     const expected = beforeConnect + 60_000;
     expect(Math.abs(lastAlarm - expected)).toBeLessThan(2_000);
   });
@@ -273,6 +274,7 @@ describe("ExchangeConnectionManager", () => {
     expect((doInstance as any).isConnecting).toBe(false);
     const alarms = mockCtx.getAlarms();
     const lastAlarm = alarms[alarms.length - 1];
+    if (lastAlarm === undefined) throw new Error("expected alarm");
     const expected = beforeConnect + 10_000;
     expect(Math.abs(lastAlarm - expected)).toBeLessThan(2_000);
   });
@@ -294,6 +296,7 @@ describe("ExchangeConnectionManager", () => {
     expect((doInstance as any).isConnecting).toBe(false);
     const alarms = mockCtx.getAlarms();
     const lastAlarm = alarms[alarms.length - 1];
+    if (lastAlarm === undefined) throw new Error("expected alarm");
     const expected = beforeConnect + 10_000;
     expect(Math.abs(lastAlarm - expected)).toBeLessThan(2_000);
   });

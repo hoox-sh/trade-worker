@@ -31,13 +31,14 @@
   // NOTE: All secrets set via `wrangler secret put <NAME>`.
   // Never commit actual secret values.
   "vars": {
-    // Secrets - create via: wrangler secret put INTERNAL_KEY_BINDING
-    // wrangler secret put MEXC_KEY_BINDING && MEXC_SECRET_BINDING
-    // wrangler secret put BINANCE_KEY_BINDING && BINANCE_SECRET_BINDING
-    // wrangler secret put BYBIT_KEY_BINDING && BYBIT_SECRET_BINDING
-    // Optional dedicated testnet keys (used when payload.test === true):
-    // wrangler secret put BINANCE_TESTNET_KEY_BINDING && BINANCE_TESTNET_SECRET_BINDING
-    // wrangler secret put BYBIT_TESTNET_KEY_BINDING && BYBIT_TESTNET_SECRET_BINDING
+    // Mesh: wrangler secret put INTERNAL_KEY_BINDING
+    // Unified exchange API (works for Binance / Bybit / MEXC — venue chosen by signal/routing):
+    //   wrangler secret put EXCHANGE_KEY_BINDING
+    //   wrangler secret put EXCHANGE_SECRET_BINDING
+    // Optional testnet pair (when payload.test === true):
+    //   wrangler secret put EXCHANGE_TESTNET_KEY_BINDING
+    //   wrangler secret put EXCHANGE_TESTNET_SECRET_BINDING
+    // Legacy per-venue bindings still resolve as fallbacks if set.
     // wrangler secret put TELEGRAM_INTERNAL_KEY_BINDING
   },
   "services": [

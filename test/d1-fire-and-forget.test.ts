@@ -148,7 +148,9 @@ describe("updateD1TradeRecords — fire-and-forget behavior", () => {
 
     // ctx.waitUntil was called with the writes
     expect(mockCtx.waitUntil).toHaveBeenCalledTimes(1);
-    const waitArg = mockCtx.waitUntil.mock.calls[0][0] as Promise<unknown>;
+    const waitCall = mockCtx.waitUntil.mock.calls[0];
+    if (!waitCall) throw new Error("expected waitUntil call");
+    const waitArg = waitCall[0] as Promise<unknown>;
     // The writes are pending (or resolved) but were NOT awaited
     // synchronously by update().
     expect(waitArg).toBeInstanceOf(Promise);
@@ -158,8 +160,8 @@ describe("updateD1TradeRecords — fire-and-forget behavior", () => {
 
     // Both D1 writes happened via named RPC
     expect(d1Calls).toHaveLength(2);
-    expect(d1Calls[0].url).toContain("/rpc/insert-trade");
-    expect(d1Calls[1].url).toContain("/rpc/upsert-position");
+    expect(d1Calls[0]?.url).toContain("/rpc/insert-trade");
+    expect(d1Calls[1]?.url).toContain("/rpc/upsert-position");
   });
 
   it("awaits writes when no ctx is provided (test / internal path)", async () => {
