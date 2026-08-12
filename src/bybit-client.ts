@@ -13,6 +13,10 @@ import {
   type OrderResponse,
   type Position,
 } from "@hoox-sh/hoox-shared/exchanges";
+import {
+  logExchangeRequest,
+  logExchangeResponse,
+} from "./shared/safe-exchange-log";
 
 // Define interfaces for Bybit V5 API responses
 interface BybitBaseResponse {
@@ -128,24 +132,23 @@ export class BybitClient extends BaseExchangeClient {
       options.body = paramsStr;
     }
 
-    this.logger.info("Bybit Request", { method, url: finalUrl });
-    if (options.body) {
-      this.logger.info("Bybit Request Body", { body: options.body });
-    }
+    logExchangeRequest(this.logger, "Bybit", method, path);
 
     const response = await fetch(finalUrl, options);
     const responseData: BybitApiResponse<T> = await response.json();
 
-    this.logger.info("Bybit Response Status", { status: response.status });
-    this.logger.info("Bybit Response Body", {
-      body: JSON.stringify(responseData),
-    });
-
     if (responseData.retCode !== 0) {
+      logExchangeResponse(this.logger, "Bybit", response.status, {
+        ok: false,
+        errorCode: responseData.retCode,
+        errorMsg: responseData.retMsg,
+      });
       throw new Error(
         `Bybit API Error (${responseData.retCode}): ${responseData.retMsg}`
       );
     }
+
+    logExchangeResponse(this.logger, "Bybit", response.status, { ok: true });
 
     return (responseData as BybitSuccessResponse<T>).result;
   }

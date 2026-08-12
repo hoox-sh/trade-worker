@@ -12,6 +12,10 @@ import {
   type OrderResponse,
   type Position,
 } from "@hoox-sh/hoox-shared/exchanges";
+import {
+  logExchangeRequest,
+  logExchangeResponse,
+} from "./shared/safe-exchange-log";
 
 // Define interfaces for Binance API responses (adjust based on actual API)
 interface BinanceErrorResponse {
@@ -102,22 +106,24 @@ export class BinanceClient extends BaseExchangeClient {
     // Binance usually includes params in query string even for POST/DELETE
     // If body is needed for specific endpoints, adjust here
 
-    this.logger.info("Binance request", { method, url });
+    logExchangeRequest(this.logger, "Binance", method, path);
 
     const response = await fetch(url, options);
     const responseData: BinanceApiResponse<T> = await response.json();
 
-    this.logger.info("Binance response", {
-      status: response.status,
-      body: JSON.stringify(responseData),
-    });
-
     if (!response.ok) {
       const error = responseData as BinanceErrorResponse;
+      logExchangeResponse(this.logger, "Binance", response.status, {
+        ok: false,
+        errorCode: error.code,
+        errorMsg: error.msg || "Unknown error",
+      });
       throw new Error(
         `Binance API Error (${error.code}): ${error.msg || "Unknown error"}`
       );
     }
+
+    logExchangeResponse(this.logger, "Binance", response.status, { ok: true });
 
     // Return the data directly if successful (assuming error check passed)
     return responseData as T;

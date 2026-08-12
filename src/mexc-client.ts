@@ -13,6 +13,10 @@ import {
   type OrderResponse,
   type Position,
 } from "@hoox-sh/hoox-shared/exchanges";
+import {
+  logExchangeRequest,
+  logExchangeResponse,
+} from "./shared/safe-exchange-log";
 
 // Define interfaces for MEXC API responses (adjust based on actual API)
 interface MexcSuccessResponse<T> {
@@ -130,24 +134,23 @@ export class MexcClient extends BaseExchangeClient {
       options.body = JSON.stringify(allParams);
     }
 
-    this.logger.info("MEXC Request", { method, url: url.toString() });
-    if (options.body) {
-      this.logger.info("MEXC Request Body", { body: options.body });
-    }
+    logExchangeRequest(this.logger, "MEXC", method, path);
 
     const response = await fetch(url.toString(), options);
     const responseData: MexcApiResponse<T> = await response.json();
 
-    this.logger.info("MEXC Response Status", { status: response.status });
-    this.logger.info("MEXC Response Body", {
-      body: JSON.stringify(responseData),
-    });
-
     if (!response.ok || responseData.code !== 200) {
+      logExchangeResponse(this.logger, "MEXC", response.status, {
+        ok: false,
+        errorCode: responseData.code,
+        errorMsg: responseData.msg || "Unknown error",
+      });
       throw new Error(
         `MEXC API Error (${responseData.code}): ${responseData.msg || "Unknown error"}`
       );
     }
+
+    logExchangeResponse(this.logger, "MEXC", response.status, { ok: true });
 
     return (responseData as MexcSuccessResponse<T>).data;
   }
