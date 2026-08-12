@@ -1095,6 +1095,110 @@ describe("Trade Worker - Webhook Endpoint (/webhook)", () => {
   });
 });
 
+/**
+ * HTTP idempotency: check presence only before execute; store only after success.
+ * Mirrors queue path — failed exchange attempts must not leave a key that blocks retries (409).
+ */
+describe("HTTP idempotency store-after-success (/webhook, /process)", () => {
+  const validPayload = {
+    exchange: "mexc",
+    action: "LONG",
+    symbol: "BTC_USDT",
+    quantity: 0.01,
+    leverage: 20,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockLogRequest.mockResolvedValue(555);
+    mockMexcClient.openLong.mockResolvedValue({ orderId: "mexc123" });
+    mockMexcClient.setLeverage.mockResolvedValue({});
+    // Default: no idemp key present; kill switch / risk keys null
+    mockEnv.CONFIG_KV.get.mockImplementation(async () => null);
+    mockEnv.CONFIG_KV.put.mockResolvedValue(undefined);
+  });
+
+  it("stores idempotency key only after successful /webhook trade", async () => {
+    const request = new Request("http://localhost/webhook", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Internal-Auth-Key": "test-internal-key",
+        "Idempotency-Key": "http-success-1",
+      },
+      body: JSON.stringify(validPayload),
+    });
+
+    const response = await worker.fetch(request, mockEnv, {
+      waitUntil: vi.fn(),
+    } as any);
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as any;
+    expect(body.success).toBe(true);
+
+    // get for presence check (and kill switch / risk), put only after success
+    expect(mockEnv.CONFIG_KV.put).toHaveBeenCalledWith(
+      "idemp:client:http-success-1:live",
+      expect.any(String),
+      expect.objectContaining({ expirationTtl: expect.any(Number) })
+    );
+  });
+
+  it("does not store key when /process exchange execute fails (retryable)", async () => {
+    mockMexcClient.openLong.mockRejectedValue(new Error("exchange down"));
+    const request = createMockRequest("POST", "/process", validPayload, {
+      "Idempotency-Key": "http-fail-1",
+    });
+
+    const response = await worker.fetch(request, mockEnv, {
+      waitUntil: vi.fn(),
+    } as any);
+
+    expect(response.status).toBe(500);
+    const body = (await response.json()) as any;
+    expect(body.success).toBe(false);
+
+    // No put of the idempotency key — retries must not get 409
+    const idempPuts = mockEnv.CONFIG_KV.put.mock.calls.filter(
+      (call: unknown[]) =>
+        typeof call[0] === "string" &&
+        (call[0] as string).startsWith("idemp:")
+    );
+    expect(idempPuts).toHaveLength(0);
+  });
+
+  it("returns 409 when key already present without re-executing", async () => {
+    mockEnv.CONFIG_KV.get.mockImplementation(async (key: string) => {
+      if (key === "idemp:client:already-done:live") {
+        return "2026-01-01T00:00:00.000Z";
+      }
+      return null;
+    });
+
+    const request = new Request("http://localhost/webhook", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Internal-Auth-Key": "test-internal-key",
+        "Idempotency-Key": "already-done",
+      },
+      body: JSON.stringify(validPayload),
+    });
+
+    const response = await worker.fetch(request, mockEnv, {
+      waitUntil: vi.fn(),
+    } as any);
+
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as any;
+    expect(body.success).toBe(false);
+    expect(body.code).toBe("DUPLICATE");
+    expect(mockMexcClient.openLong).not.toHaveBeenCalled();
+    expect(mockEnv.CONFIG_KV.put).not.toHaveBeenCalled();
+  });
+});
+
 describe("webhook probe mode", () => {
   it("short-circuits before executeTrade and logs per-hop duration", async () => {
     const executeTradeSpy = vi.spyOn(executionModule, "executeTrade");

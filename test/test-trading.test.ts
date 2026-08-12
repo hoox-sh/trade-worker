@@ -149,7 +149,7 @@ describe("ExchangeRouter test trading", () => {
     expect(createMexcSpy).not.toHaveBeenCalled();
   });
 
-  it("disables websocket DO when test trading is enabled", async () => {
+  it("forces REST when use_websocket=true (WS order placement disabled)", async () => {
     const router = new ExchangeRouter();
     const kvEnv = {
       ...env,
@@ -171,10 +171,14 @@ describe("ExchangeRouter test trading", () => {
       },
       kvEnv
     );
-    expect(live.useWebsocketDO).toBe(true);
-    // Perf: live WS path must not construct a REST client.
-    expect(live.client).toBeUndefined();
-    expect(createBinanceSpy).not.toHaveBeenCalled();
+    // Fail-safe: use_websocket must not route live orders through the WS DO.
+    expect(live.useWebsocketDO).toBe(false);
+    expect(live.client).toBeDefined();
+    expect(createBinanceSpy).toHaveBeenCalledWith(
+      "binance-key",
+      "binance-secret",
+      { testnet: false }
+    );
 
     createBinanceSpy.mockClear();
 

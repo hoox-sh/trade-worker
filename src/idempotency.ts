@@ -90,7 +90,9 @@ export function resolveQueueIdempotencyKey(trade: {
 
 /**
  * Get-only check: whether an idempotency key is already present in CONFIG_KV.
- * Used by the queue path so a failed execute can still retry within TTL.
+ * Used by HTTP (/webhook, /process) and queue paths so a failed execute can still
+ * retry within TTL. Callers must store only after successful execute via
+ * {@link storeIdempotencyKey}.
  *
  * - Missing KV → `{ present: false, skipped: true }` (cannot dedupe; fail-open)
  * - Key present → `{ present: true }`
@@ -115,7 +117,8 @@ export async function isIdempotencyKeyPresent(
 }
 
 /**
- * Put-only store of an idempotency key after a successful execute (queue path).
+ * Put-only store of an idempotency key after a successful execute
+ * (HTTP + queue paths). Do not call before execute.
  *
  * - Missing KV → `{ stored: false, skipped: true }`
  * - Put succeeds → `{ stored: true }`
@@ -141,11 +144,9 @@ export async function storeIdempotencyKey(
 }
 
 /**
- * Check-and-store a key in CONFIG_KV (HTTP ingress path).
- *
- * Unchanged semantics for /webhook and /process: check+store **before** execute
- * so concurrent HTTP retries are best-effort deduped. Queue consumers use
- * `isIdempotencyKeyPresent` + `storeIdempotencyKey` instead (store only after success).
+ * Check-and-store a key in CONFIG_KV (legacy helper; not used by trade-worker
+ * ingress). Prefer `isIdempotencyKeyPresent` before execute and
+ * `storeIdempotencyKey` only after success (HTTP + queue paths).
  *
  * - Missing KV → `{ isNew: true, skipped: true }` (cannot dedupe; fail-open)
  * - Key present → `{ isNew: false }`

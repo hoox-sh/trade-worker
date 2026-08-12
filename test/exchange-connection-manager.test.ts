@@ -511,4 +511,59 @@ describe("ExchangeConnectionManager", () => {
       status: 200,
     });
   });
+
+  test("executeTrade uses REST even when WS is connected and ready", async () => {
+    // Arrange — successful WS connect, then spy REST openLong
+    const fakeWs = new FakeWebSocket();
+    mockFetch.mockResolvedValueOnce(makeWsResponse(fakeWs));
+    const openLongSpy = spyOn(
+      BinanceClient.prototype,
+      "openLong"
+    ).mockResolvedValue({
+      orderId: "rest-1",
+      symbol: "BTCUSDT",
+      status: "FILLED",
+    });
+    const requestSpy = spyOn(
+      ExchangeConnectionManager.prototype as any,
+      "request"
+    );
+
+    const doInstance = new ExchangeConnectionManager(
+      mockCtx as any,
+      env as any
+    );
+    await mockCtx.getLastWaitUntilPromise();
+    expect((doInstance as any).ready).toBe(true);
+    expect((doInstance as any).ws).toBe(fakeWs);
+
+    const payload: WebhookPayload = {
+      exchange: "binance",
+      action: "LONG",
+      symbol: "BTCUSDT",
+      quantity: 0.02,
+      price: 42_000,
+      orderType: "MARKET",
+    };
+
+    // Act
+    const result = await doInstance.executeTrade(payload, env as any);
+
+    // Assert — REST path used; WS request() never called for order place
+    expect(requestSpy).not.toHaveBeenCalled();
+    expect(openLongSpy).toHaveBeenCalledTimes(1);
+    expect(openLongSpy).toHaveBeenCalledWith(
+      "BTCUSDT",
+      0.02,
+      42_000,
+      "MARKET"
+    );
+    expect(result).toEqual({
+      success: true,
+      result: { orderId: "rest-1", symbol: "BTCUSDT", status: "FILLED" },
+      status: 200,
+    });
+
+    requestSpy.mockRestore();
+  });
 });

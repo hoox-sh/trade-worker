@@ -20,6 +20,23 @@ const logger = createLogger({
   module: "exchange-connection-manager",
 });
 
+/**
+ * One warn per exchange per isolate when a ready WS connection is not used
+ * for order placement. WS order placement is intentionally disabled until
+ * adapters are fixed end-to-end (method names, BUY/SELL sides, futures
+ * endpoints, Bybit/MEXC post-connect auth). Risk of double-fill if a
+ * partial WS success falls back to REST.
+ */
+const wsOrderSkipWarned = new Set<string>();
+
+function warnWsOrderSkippedOnce(exchange: string, detail: string): void {
+  if (wsOrderSkipWarned.has(exchange)) return;
+  wsOrderSkipWarned.add(exchange);
+  logger.warn(
+    `WS order placement disabled for ${exchange}; using REST. ${detail}`
+  );
+}
+
 export class ExchangeConnectionManager extends DurableObject {
   private ws: WebSocket | null = null;
   private isConnecting = false;
@@ -211,33 +228,21 @@ export class ExchangeConnectionManager extends DurableObject {
     payload: WebhookPayload,
     env: Env
   ): Promise<TradeExecutionResult> {
-    // Test trading uses dedicated REST testnet hosts. Live WS adapters
-    // always target mainnet — never place a test order over a live socket.
-    if (payload.test === true) {
-      return this.executeTradeRest(payload, env);
+    // Order placement always uses REST. The WS adapters are not safe for
+    // live orders: method names (`${exchange}.order.place`), side mapping
+    // (LONG/SHORT vs BUY/SELL), product (Binance Spot WS vs futures REST),
+    // and missing Bybit/MEXC post-connect auth. Fail-safe: never place
+    // via WS here.
+    //
+    // Adapters + request() remain for connection plumbing / future work;
+    // re-enable order placement over WS only after those issues are fixed.
+    if (this.ready && this.ws && this.adapter && payload.test !== true) {
+      warnWsOrderSkippedOnce(
+        this.exchange,
+        "executeTrade forces REST (WS order placement disabled)"
+      );
     }
 
-    // Try the WS path first if the connection is ready.
-    if (this.ready && this.ws && this.adapter) {
-      try {
-        const params: Record<string, unknown> = {
-          symbol: payload.symbol,
-          side: payload.action.toUpperCase(),
-          type: payload.orderType ?? "MARKET",
-          quantity: payload.quantity,
-          price: payload.price,
-        };
-        const result = await this.request(
-          `${this.exchange}.order.place`,
-          params
-        );
-        return { success: true, result, status: 200 };
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        logger.warn(`WS execution failed, falling back to REST: ${msg}`);
-        // fall through to REST
-      }
-    }
     return this.executeTradeRest(payload, env);
   }
 

@@ -29,6 +29,22 @@ const logger = createLogger({
   module: "exchange-router",
 });
 
+/**
+ * Order placement over the WS DO path is disabled until adapters are fixed
+ * (method names, BUY/SELL sides, futures endpoints, Bybit/MEXC auth).
+ * `exchange:<name>:use_websocket=true` is ignored for routing; REST is used.
+ * Warn once per exchange per isolate so logs stay quiet under load.
+ */
+const wsOrderSkipWarned = new Set<string>();
+
+function warnWsOrderSkippedOnce(exchange: string, detail: string): void {
+  if (wsOrderSkipWarned.has(exchange)) return;
+  wsOrderSkipWarned.add(exchange);
+  logger.warn(
+    `WS order placement disabled for ${exchange}; routing via REST. ${detail}`
+  );
+}
+
 // Re-export generic IExchangeProvider for backward compat
 export type { IExchangeProvider };
 
@@ -150,10 +166,15 @@ export class BybitProvider implements TradeExchangeProvider {
 export interface RouteResult {
   exchange: string;
   /**
-   * REST client. Omitted when `useWebsocketDO` is true so we skip
-   * CryptoKey import for the live WS path (DO builds its own client).
+   * REST client for order placement. Always constructed for live trades
+   * while WS order placement is disabled (see useWebsocketDO).
    */
   client?: IExchangeClient;
+  /**
+   * When true, execution would route order placement through the WS DO.
+   * Currently always false: `exchange:*:use_websocket` is ignored until
+   * adapters are safe (see warn in route()).
+   */
   useWebsocketDO?: boolean;
   testnet: boolean;
   /** Which secret binding pair the REST client would use. */
@@ -218,9 +239,16 @@ export class ExchangeRouter implements Pick<
           throw new Error(`EXCHANGE_DISABLED: ${exchange} is disabled`);
         }
 
-        // Testnet uses dedicated REST hosts; do not reuse live WS DO connections.
+        // Order placement over WS is disabled: adapters are not safe
+        // (wrong methods/sides, spot vs futures, missing Bybit/MEXC auth).
+        // Honor use_websocket=false as REST; when true, force REST and warn
+        // once so operators know the flag is intentionally ignored.
         if (useWs === "true" && !testnet) {
-          useWebsocketDO = true;
+          warnWsOrderSkippedOnce(
+            exchange,
+            "CONFIG exchange:*:use_websocket=true ignored for order placement"
+          );
+          useWebsocketDO = false;
         }
       } catch (e) {
         // Re-throw EXCHANGE_DISABLED errors, swallow and log KV failures

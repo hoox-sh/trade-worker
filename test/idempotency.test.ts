@@ -187,12 +187,43 @@ describe("storeIdempotencyKey", () => {
 });
 
 /**
- * HTTP path (/webhook, /process) still uses checkAndStoreIdempotency before execute.
- * Semantics: check+store atomically (best-effort) so concurrent HTTP retries are
- * deduped even if the first request is still in flight. Queue path intentionally
- * differs (store only after success) — see isIdempotencyKeyPresent / storeIdempotencyKey.
+ * HTTP path (/webhook, /process) and queue path share the same semantics:
+ * isIdempotencyKeyPresent before execute → storeIdempotencyKey only after success.
+ * Race note: concurrent in-flight requests with the same key may both pass the
+ * check and double-hit the exchange; gateway DO is the primary gate.
  */
-describe("checkAndStoreIdempotency (HTTP path: check+store before execute)", () => {
+describe("HTTP path: check without store → execute → store on success", () => {
+  test("failed execute leaves key absent so retries are allowed", async () => {
+    const kv = createMockKv();
+    const key = "idemp:client:http-retry:live";
+
+    const beforeFail = await isIdempotencyKeyPresent(kv, key);
+    expect(beforeFail).toEqual({ present: false });
+    // simulate execute failure: do NOT store
+    expect(kv.put).not.toHaveBeenCalled();
+    expect(kv.store.has(key)).toBe(false);
+
+    // Retry after failure: still not present, can re-execute
+    const beforeRetry = await isIdempotencyKeyPresent(kv, key);
+    expect(beforeRetry).toEqual({ present: false });
+  });
+
+  test("success stores key; subsequent request is present (409 path)", async () => {
+    const kv = createMockKv();
+    const key = "idemp:client:http-ok:live";
+
+    const before = await isIdempotencyKeyPresent(kv, key);
+    expect(before).toEqual({ present: false });
+
+    const store = await storeIdempotencyKey(kv, key);
+    expect(store).toEqual({ stored: true });
+
+    const afterSuccess = await isIdempotencyKeyPresent(kv, key);
+    expect(afterSuccess).toEqual({ present: true });
+  });
+});
+
+describe("checkAndStoreIdempotency (legacy helper)", () => {
   test("first call isNew true and stores key", async () => {
     const kv = createMockKv();
     const result = await checkAndStoreIdempotency(kv, "idemp:test:key-1");

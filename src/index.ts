@@ -48,7 +48,6 @@ import { saveReportToR2, handleGetReportRequest } from "./reports";
 import { sendTradeNotification, TradeQueueMessage } from "./notifications";
 import { ExchangeConnectionManager } from "./exchange-connection-manager";
 import {
-  checkAndStoreIdempotency,
   isIdempotencyKeyPresent,
   resolveQueueIdempotencyKey,
   resolveTradeIdempotencyKey,
@@ -656,14 +655,19 @@ async function handleWebhookRequest(
     // *** Use validated payload ***
     const validatedPayload = validation.value;
 
-    // Entry-level idempotency (best-effort via CONFIG_KV; probes already returned)
+    // Entry-level idempotency (best-effort via CONFIG_KV; probes already returned).
+    // Check presence only before execute; store only after successful execute so a
+    // failed first attempt can still retry within TTL (mirrors queue path).
+    // Race note: concurrent in-flight requests with the same key may both pass the
+    // check and hit the exchange (double-execute). Gateway DO is the primary gate;
+    // CONFIG_KV lacks compare-and-set — this is best-effort only.
     const idempKey = resolveTradeIdempotencyKey(request, validatedPayload);
-    const idemp = await checkAndStoreIdempotency(env.CONFIG_KV, idempKey);
+    const idemp = await isIdempotencyKeyPresent(env.CONFIG_KV, idempKey);
     if (idemp.skipped) {
       logger.warn(
         `[${incomingRequestId}] Idempotency skipped (CONFIG_KV unavailable or error)`
       );
-    } else if (!idemp.isNew) {
+    } else if (idemp.present) {
       logger.info(
         `[${incomingRequestId}] Duplicate trade request rejected: ${idempKey.slice(0, 64)}`
       );
@@ -689,6 +693,17 @@ async function handleWebhookRequest(
       dbLogId,
       ctx
     );
+
+    // Store key only after success so failed attempts remain retryable.
+    if (tradeResult.success) {
+      const store = await storeIdempotencyKey(env.CONFIG_KV, idempKey);
+      if (store.skipped) {
+        logger.warn(
+          `[${incomingRequestId}] Idempotency store skipped (CONFIG_KV unavailable or error)`
+        );
+      }
+    }
+
     const tradeResponse = createJsonResponse(
       tradeResult,
       tradeResult.status ?? (tradeResult.success ? 200 : 500)
@@ -826,14 +841,19 @@ async function handleProcessRequest(
     // *** Use validated payload ***
     const validatedPayload = validation.value;
 
-    // Entry-level idempotency (best-effort via CONFIG_KV)
+    // Entry-level idempotency (best-effort via CONFIG_KV).
+    // Check presence only before execute; store only after successful execute so a
+    // failed first attempt can still retry within TTL (mirrors queue path).
+    // Race note: concurrent in-flight requests with the same key may both pass the
+    // check and hit the exchange (double-execute). Gateway DO is the primary gate;
+    // CONFIG_KV lacks compare-and-set — this is best-effort only.
     const idempKey = resolveTradeIdempotencyKey(request, validatedPayload);
-    const idemp = await checkAndStoreIdempotency(env.CONFIG_KV, idempKey);
+    const idemp = await isIdempotencyKeyPresent(env.CONFIG_KV, idempKey);
     if (idemp.skipped) {
       logger.warn(
         `[${incomingRequestId}] Idempotency skipped (CONFIG_KV unavailable or error)`
       );
-    } else if (!idemp.isNew) {
+    } else if (idemp.present) {
       logger.info(
         `[${incomingRequestId}] Duplicate trade request rejected: ${idempKey.slice(0, 64)}`
       );
@@ -859,6 +879,17 @@ async function handleProcessRequest(
       dbLogId,
       ctx
     );
+
+    // Store key only after success so failed attempts remain retryable.
+    if (tradeResult.success) {
+      const store = await storeIdempotencyKey(env.CONFIG_KV, idempKey);
+      if (store.skipped) {
+        logger.warn(
+          `[${incomingRequestId}] Idempotency store skipped (CONFIG_KV unavailable or error)`
+        );
+      }
+    }
+
     const tradeResponse = createJsonResponse(
       tradeResult,
       tradeResult.status ?? (tradeResult.success ? 200 : 500)
