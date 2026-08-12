@@ -231,7 +231,17 @@ export class DbLogger implements IDbLogger {
         logger.warn("response.headers is missing for logResponse");
       }
 
-      const responseBody = response.body ? await response.clone().text() : null;
+      // Cap response body size to avoid OOM on large exchange error payloads
+      // (Workers 128 MB limit; logging must not materialize unbounded bodies).
+      const MAX_RESPONSE_LOG_CHARS = 64 * 1024;
+      let responseBody: string | null = null;
+      if (response.body) {
+        const text = await response.clone().text();
+        responseBody =
+          text.length > MAX_RESPONSE_LOG_CHARS
+            ? `${text.slice(0, MAX_RESPONSE_LOG_CHARS)}…[truncated]`
+            : text;
+      }
       const errorString = error ? error.toString() : null;
 
       const logPayload = {
