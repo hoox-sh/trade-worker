@@ -361,7 +361,7 @@ async function fetchD1OpenPositions(
     throw new Error("D1 read auth key not configured");
   }
 
-  // Prefer dashboard endpoint (fixed template), fall back to /query
+  // Prefer dashboard endpoint (fixed template), then named RPC — never free-form /query
   try {
     const res = await authenticatedServiceFetch(
       env.D1_SERVICE,
@@ -379,7 +379,7 @@ async function fetchD1OpenPositions(
       if (Array.isArray(body.results)) return body.results;
     }
   } catch (e) {
-    logger.warn("dashboard/positions failed, trying /query", {
+    logger.warn("dashboard/positions failed, trying /rpc/list-open-positions", {
       error: toError(e),
     });
   }
@@ -387,21 +387,22 @@ async function fetchD1OpenPositions(
   const res = await authenticatedServiceFetch(
     env.D1_SERVICE,
     env,
-    "/query",
+    "/rpc/list-open-positions",
+    {},
     {
-      query:
-        "SELECT id, exchange, symbol, side, size, status FROM positions WHERE status = 'OPEN'",
-      params: [],
-    },
-    { internalKeyFields: D1_READ_AUTH_KEY_FIELDS }
+      method: "POST",
+      internalKeyFields: D1_READ_AUTH_KEY_FIELDS,
+    }
   );
   if (!res.ok) {
-    throw new Error(`D1 query failed: ${res.status}`);
+    throw new Error(`D1 list-open-positions failed: ${res.status}`);
   }
   const body = (await res.json()) as {
     success?: boolean;
     results?: D1OpenPositionRow[];
+    positions?: D1OpenPositionRow[];
   };
+  if (Array.isArray(body.positions)) return body.positions;
   return Array.isArray(body.results) ? body.results : [];
 }
 
