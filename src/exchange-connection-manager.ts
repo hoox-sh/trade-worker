@@ -4,7 +4,10 @@
  */
 
 import { DurableObject } from "cloudflare:workers";
-import { createLogger } from "@hoox-sh/hoox-shared/middleware";
+import {
+  createLogger,
+  safeWaitUntil,
+} from "@hoox-sh/hoox-shared/middleware";
 import type { Env } from "./index";
 import { BinanceClient } from "./binance-client";
 import { BybitClient } from "./bybit-client";
@@ -72,8 +75,10 @@ export class ExchangeConnectionManager extends DurableObject {
       logger.warn(`Missing ${this.exchange} credentials; DO is REST-only`);
     }
 
-    // Kick off connection in background
-    this.ctx.waitUntil(this.connectToExchange());
+    // Kick off connection in background (safeWaitUntil captures rejections).
+    safeWaitUntil(this.ctx, this.connectToExchange(), (err) =>
+      logger.error("Background connectToExchange failed", { error: err })
+    );
   }
 
   /**
@@ -116,9 +121,15 @@ export class ExchangeConnectionManager extends DurableObject {
         // Keep the DO alive on any incoming message (responses AND push
         // events from user data streams). The connection's overall
         // activity — not just our request/response traffic — proves
-        // the DO is in use. Event listeners cannot await; use waitUntil
-        // so hibernation does not drop the keepalive alarm.
-        this.ctx.waitUntil(this.ctx.storage.setAlarm(Date.now() + 60_000));
+        // the DO is in use. Event listeners cannot await; use safeWaitUntil
+        // so hibernation does not drop the keepalive alarm and rejections
+        // are not floating.
+        safeWaitUntil(
+          this.ctx,
+          this.ctx.storage.setAlarm(Date.now() + 60_000),
+          (err) =>
+            logger.error("Failed to schedule keepalive alarm", { error: err })
+        );
 
         const raw =
           typeof event === "object" && event !== null && "data" in event
@@ -147,8 +158,13 @@ export class ExchangeConnectionManager extends DurableObject {
         this.ws = null;
         this.ready = false;
         this.isConnecting = false;
-        // Event listener cannot await; waitUntil keeps the reconnect alarm.
-        this.ctx.waitUntil(this.ctx.storage.setAlarm(Date.now() + 5000)); // Reconnect in 5s
+        // Event listener cannot await; safeWaitUntil keeps the reconnect alarm.
+        safeWaitUntil(
+          this.ctx,
+          this.ctx.storage.setAlarm(Date.now() + 5000), // Reconnect in 5s
+          (err) =>
+            logger.error("Failed to schedule reconnect alarm", { error: err })
+        );
       });
 
       this.ws.addEventListener("error", (error) => {
