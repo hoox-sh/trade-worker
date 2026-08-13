@@ -1,33 +1,30 @@
 {
   "display_name": "Trade Worker",
-  "description": "Multi-exchange trade execution",
+  "description": "Execution limits and exchange enable flags (read by trade-worker)",
   "sections": {
     "trade": {
       "title": "Execution Limits",
-      "description": "Global limits and overrides for trading execution.",
+      "description": "trade:* keys used on the order path. Kill switch is shared with Agent risk UI.",
       "icon": "zap",
       "priority": 10,
       "fields": {
         "kill_switch": false,
         "default_leverage": 10,
         "max_position_size": 1000,
-        "max_daily_drawdown_percent": -5,
       },
       "descriptions": {
-        "kill_switch": "Emergency stop specifically for trade execution. If true, the trade-worker will reject all trade signals.",
-        "default_leverage": "Default leverage for futures contracts when the signal doesn't specify one.",
-        "max_position_size": "Maximum allowed position size in USD per trade.",
-        "max_daily_drawdown_percent": "Hard stop trading limit if daily PnL drops below this percentage.",
+        "kill_switch": "trade:kill_switch — reject new orders when truthy (also OR'd with global:kill_switch).",
+        "default_leverage": "Default futures leverage when the signal omits leverage.",
+        "max_position_size": "Max notional position size (USD) per trade.",
       },
       "options": {
         "default_leverage": [1, 5, 10, 20, 50, 100],
         "max_position_size": [100, 500, 1000, 5000, 10000],
-        "max_daily_drawdown_percent": [-1, -2, -3, -5, -10],
       },
     },
     "exchanges": {
       "title": "Exchanges",
-      "description": "Exchange-specific settings",
+      "description": "exchange:<venue>:enabled — router skips disabled venues",
       "icon": "layers",
       "priority": 20,
       "fields": {
@@ -35,15 +32,10 @@
         "mexc_enabled": true,
         "bybit_enabled": false,
       },
-    },
-    "fees": {
-      "title": "Fees",
-      "description": "Fee and slippage configuration",
-      "icon": "percent",
-      "priority": 30,
-      "fields": {
-        "default_slippage_bps": 5,
-        "maker_fee_rebate": false,
+      "descriptions": {
+        "binance_enabled": "Allow Binance as a routing target.",
+        "mexc_enabled": "Allow MEXC as a routing target.",
+        "bybit_enabled": "Allow Bybit as a routing target.",
       },
     },
   },
