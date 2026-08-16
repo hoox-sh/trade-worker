@@ -166,14 +166,13 @@ export class BybitProvider implements TradeExchangeProvider {
 export interface RouteResult {
   exchange: string;
   /**
-   * REST client for order placement. Always constructed for live trades
-   * while WS order placement is disabled (see useWebsocketDO).
+   * REST client for order placement. Always constructed while WS order
+   * placement is disabled.
    */
   client?: IExchangeClient;
   /**
-   * When true, execution would route order placement through the WS DO.
-   * Currently always false: `exchange:*:use_websocket` is ignored until
-   * adapters are safe (see warn in route()).
+   * Reserved for a future WS DO order path. Always `false` today:
+   * `exchange:*:use_websocket` is ignored until adapters are safe.
    */
   useWebsocketDO?: boolean;
   testnet: boolean;
@@ -203,7 +202,6 @@ export class ExchangeRouter implements Pick<
 
   async route(payload: WebhookPayload, env: Env): Promise<RouteResult> {
     let exchange = payload.exchange.toLowerCase();
-    let useWebsocketDO = false;
     const testnet = payload.test === true;
 
     // Check KV for dynamic routing
@@ -241,14 +239,13 @@ export class ExchangeRouter implements Pick<
 
         // Order placement over WS is disabled: adapters are not safe
         // (wrong methods/sides, spot vs futures, missing Bybit/MEXC auth).
-        // Honor use_websocket=false as REST; when true, force REST and warn
-        // once so operators know the flag is intentionally ignored.
+        // When the operator sets use_websocket=true, stay on REST and warn
+        // once so they know the flag is intentionally ignored.
         if (useWs === "true" && !testnet) {
           warnWsOrderSkippedOnce(
             exchange,
             "CONFIG exchange:*:use_websocket=true ignored for order placement"
           );
-          useWebsocketDO = false;
         }
       } catch (e) {
         // Re-throw EXCHANGE_DISABLED errors, swallow and log KV failures
@@ -275,17 +272,6 @@ export class ExchangeRouter implements Pick<
       throw new Error(
         `API secret bindings not configured or accessible for ${exchange}`
       );
-    }
-
-    // Live WS DO path: skip REST client construction (importKey + object).
-    // The DO creates its own client if it falls back to REST.
-    if (useWebsocketDO) {
-      return {
-        exchange,
-        useWebsocketDO: true,
-        testnet,
-        credentialSource: creds.source,
-      };
     }
 
     const client = createClientForExchange(exchange, env, { testnet });
