@@ -30,6 +30,6 @@ EXCHANGE_SECRET_BINDING=your_exchange_api_secret_here
 # MEXC_KEY_BINDING=...
 # MEXC_SECRET_BINDING=...
 
-# Mesh key used for trade-worker -> web3-wallet-worker calls
-# (falls back to INTERNAL_KEY_BINDING when unset)
+# Mesh key used for trade-worker -> web3-wallet-worker calls.
+# `hoox setup` / `hoox keys generate` writes this (same value as INTERNAL_KEY_BINDING).
 # WALLET_EXECUTE_KEY_BINDING=your_wallet_execute_key_here
