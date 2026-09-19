@@ -23,6 +23,9 @@ import {
   resolveExchangeCredentials,
   type CredentialSource,
 } from "./exchange-credentials";
+import { DEX_VENUE_NAMES, resolveDexVenue } from "./dex-venues";
+import { DexWalletClient } from "./dex-wallet-client";
+import type { ServiceBinding } from "@hoox-sh/hoox-shared/service-bindings";
 
 const logger = createLogger({
   service: "trade-worker",
@@ -59,6 +62,7 @@ export const EXCHANGE_TEST_SUPPORT: Record<string, boolean> = {
   binance: BinanceClient.supportsTestTrading,
   bybit: BybitClient.supportsTestTrading,
   mexc: MexcClient.supportsTestTrading,
+  ...Object.fromEntries(DEX_VENUE_NAMES.map((n) => [n, false])),
 };
 
 /**
@@ -86,6 +90,15 @@ export const factories = {
     options?: ClientCreateOptions
   ): IExchangeClient {
     return new BybitClient(apiKey, apiSecret, options);
+  },
+  createDexWalletClient(env: Env, venueName: string): IExchangeClient {
+    const venue = resolveDexVenue(venueName);
+    if (!venue) throw new Error(`Unsupported DEX venue: ${venueName}`);
+    const binding = env.WEB3_WALLET_SERVICE;
+    if (!binding) {
+      throw new Error("WEB3_WALLET_SERVICE binding not configured");
+    }
+    return new DexWalletClient(binding as ServiceBinding, env, venue);
   },
 };
 
@@ -135,8 +148,10 @@ export class BinanceProvider implements TradeExchangeProvider {
   }
   hasCredentials(env: Env): boolean {
     // Live or dedicated testnet keys count as "configured".
-    return hasExchangeCredentials("binance", env, false)
-      || hasExchangeCredentials("binance", env, true);
+    return (
+      hasExchangeCredentials("binance", env, false) ||
+      hasExchangeCredentials("binance", env, true)
+    );
   }
 }
 
@@ -158,8 +173,43 @@ export class BybitProvider implements TradeExchangeProvider {
     return createClientForExchange("bybit", env, options);
   }
   hasCredentials(env: Env): boolean {
-    return hasExchangeCredentials("bybit", env, false)
-      || hasExchangeCredentials("bybit", env, true);
+    return (
+      hasExchangeCredentials("bybit", env, false) ||
+      hasExchangeCredentials("bybit", env, true)
+    );
+  }
+}
+
+export class UniswapEthereumProvider implements TradeExchangeProvider {
+  readonly name = "uniswap-ethereum";
+  readonly supportsTestTrading = false;
+  createClient(env: Env, _options?: ClientCreateOptions): IExchangeClient {
+    return factories.createDexWalletClient(env, "uniswap-ethereum");
+  }
+  hasCredentials(env: Env): boolean {
+    return Boolean(env.WEB3_WALLET_SERVICE);
+  }
+}
+
+export class UniswapArbitrumProvider implements TradeExchangeProvider {
+  readonly name = "uniswap-arbitrum";
+  readonly supportsTestTrading = false;
+  createClient(env: Env, _options?: ClientCreateOptions): IExchangeClient {
+    return factories.createDexWalletClient(env, "uniswap-arbitrum");
+  }
+  hasCredentials(env: Env): boolean {
+    return Boolean(env.WEB3_WALLET_SERVICE);
+  }
+}
+
+export class JupiterSolanaProvider implements TradeExchangeProvider {
+  readonly name = "jupiter-solana";
+  readonly supportsTestTrading = false;
+  createClient(env: Env, _options?: ClientCreateOptions): IExchangeClient {
+    return factories.createDexWalletClient(env, "jupiter-solana");
+  }
+  hasCredentials(env: Env): boolean {
+    return Boolean(env.WEB3_WALLET_SERVICE);
   }
 }
 
@@ -194,6 +244,9 @@ export class ExchangeRouter implements Pick<
     this.baseRouter.registerProvider(new BinanceProvider());
     this.baseRouter.registerProvider(new MexcProvider());
     this.baseRouter.registerProvider(new BybitProvider());
+    this.baseRouter.registerProvider(new UniswapEthereumProvider());
+    this.baseRouter.registerProvider(new UniswapArbitrumProvider());
+    this.baseRouter.registerProvider(new JupiterSolanaProvider());
   }
 
   registerProvider(provider: IExchangeProvider<IExchangeClient, Env>): void {
@@ -265,6 +318,18 @@ export class ExchangeRouter implements Pick<
         );
       }
       logger.info("Test trading enabled for exchange", { exchange });
+    }
+
+    const dexVenue = resolveDexVenue(exchange);
+    if (dexVenue) {
+      const client = factories.createDexWalletClient(env, dexVenue.name);
+      return {
+        exchange,
+        client,
+        useWebsocketDO: false,
+        testnet: false,
+        credentialSource: "wallet-binding",
+      };
     }
 
     const creds = resolveExchangeCredentials(exchange, env, testnet);

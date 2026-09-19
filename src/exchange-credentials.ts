@@ -53,7 +53,7 @@ export interface CredentialEnv {
   MEXC_SECRET_BINDING?: string;
 }
 
-export type CredentialSource = "testnet" | "live";
+export type CredentialSource = "testnet" | "live" | "wallet-binding";
 
 export interface ResolvedCredentials {
   apiKey: string;
@@ -137,7 +137,10 @@ function resolveLegacyTestnet(
     );
   }
   if (ex === "bybit") {
-    return pair(env.BYBIT_TESTNET_KEY_BINDING, env.BYBIT_TESTNET_SECRET_BINDING);
+    return pair(
+      env.BYBIT_TESTNET_KEY_BINDING,
+      env.BYBIT_TESTNET_SECRET_BINDING
+    );
   }
   // MEXC has no public REST testnet
   return null;

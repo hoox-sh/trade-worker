@@ -11,14 +11,8 @@ import {
   D1_WRITE_AUTH_KEY_FIELDS,
   resolveInternalAuthKey,
 } from "@hoox-sh/hoox-shared/service-bindings";
-import {
-  createJsonResponse,
-  toError,
-} from "@hoox-sh/hoox-shared/errors";
-import {
-  createLogger,
-  safeWaitUntil,
-} from "@hoox-sh/hoox-shared/middleware";
+import { createJsonResponse, toError } from "@hoox-sh/hoox-shared/errors";
+import { createLogger, safeWaitUntil } from "@hoox-sh/hoox-shared/middleware";
 import type { WebhookPayload } from "@hoox-sh/hoox-shared/types";
 import { trackAnalytics } from "@hoox-sh/hoox-shared/analytics";
 import { KVKeys } from "@hoox-sh/hoox-shared/kvKeys";
@@ -27,7 +21,10 @@ import {
   KILL_SWITCH_ACTIVE_PREFIX,
 } from "@hoox-sh/hoox-shared/kill-switch";
 import type { IDbLogger } from "./db-logger";
-import { hasExchangeCredentials } from "./exchange-credentials";
+import {
+  hasExchangeCredentials,
+  type CredentialSource,
+} from "./exchange-credentials";
 import { ExchangeRouter, type Env } from "./exchange-router";
 import { sendTradeNotificationToTelegram } from "./notifications";
 
@@ -450,7 +447,7 @@ export async function executeTrade(
     let client: IExchangeClient | undefined;
     let routedExchange: string;
     let useWebsocketDO = false;
-    let credentialSource: "testnet" | "live" | undefined;
+    let credentialSource: CredentialSource | undefined;
 
     try {
       const routeResult = await exchangeRouter.route(payload, env);
@@ -597,13 +594,14 @@ export async function executeTrade(
         result: { success: true },
         latencyMs,
       }),
-      (err) =>
-        logger.error("trackAnalytics failed", { error: String(err) })
+      (err) => logger.error("trackAnalytics failed", { error: String(err) })
     );
 
     // Send notification via telegram-worker after trade execution (non-blocking)
     if (env.TELEGRAM_SERVICE) {
-      const exchangeLabel = testnet ? `${routedExchange} [TEST]` : routedExchange;
+      const exchangeLabel = testnet
+        ? `${routedExchange} [TEST]`
+        : routedExchange;
       safeWaitUntil(
         ctx,
         sendTradeNotificationToTelegram(
@@ -657,8 +655,7 @@ export async function executeTrade(
         result: { success: false, error: errorMsg },
         latencyMs,
       }),
-      (err) =>
-        logger.error("trackAnalytics failed", { error: String(err) })
+      (err) => logger.error("trackAnalytics failed", { error: String(err) })
     );
 
     return tradeResult;
