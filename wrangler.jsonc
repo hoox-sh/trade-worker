@@ -54,6 +54,10 @@
     {
       "binding": "ANALYTICS_SERVICE",
       "service": "analytics-worker"
+    },
+    {
+      "binding": "WEB3_WALLET_SERVICE",
+      "service": "web3-wallet-worker"
     }
   ],
   "kv_namespaces": [

@@ -30,6 +30,7 @@ interface __BaseEnv_Env {
 	D1_SERVICE: Fetcher /* d1-worker */;
 	TELEGRAM_SERVICE: Fetcher /* telegram-worker */;
 	ANALYTICS_SERVICE: Fetcher /* analytics-worker */;
+	WEB3_WALLET_SERVICE: Fetcher /* web3-wallet-worker */;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {
