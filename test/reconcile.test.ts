@@ -387,4 +387,40 @@ describe("reconcilePositions", () => {
       }),
     ]);
   });
+
+  it("skips DEX spot venues without closing holdings", async () => {
+    const summary = await reconcilePositions(
+      { WEB3_WALLET_SERVICE: {} } as never,
+      {
+        exchanges: ["uniswap-ethereum", "jupiter-solana"],
+        d1OpenRows: [],
+        dryRun: true,
+      }
+    );
+    expect(summary.exchanges).toEqual([
+      expect.objectContaining({
+        exchange: "uniswap-ethereum",
+        status: "skipped",
+        reason: "dex_spot_no_reconcile",
+      }),
+      expect.objectContaining({
+        exchange: "jupiter-solana",
+        status: "skipped",
+        reason: "dex_spot_no_reconcile",
+      }),
+    ]);
+  });
+
+  it("reports no_credentials for DEX venues without a wallet binding", async () => {
+    const summary = await reconcilePositions({} as never, {
+      exchanges: ["uniswap-ethereum"],
+      d1OpenRows: [],
+      dryRun: true,
+    });
+    expect(summary.exchanges[0]).toMatchObject({
+      exchange: "uniswap-ethereum",
+      status: "skipped",
+      reason: "no_credentials",
+    });
+  });
 });

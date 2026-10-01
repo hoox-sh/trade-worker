@@ -100,6 +100,41 @@ export function toBaseUnits(quantity: number, decimals: number): string {
   return BigInt(`${whole}${frac}`).toString();
 }
 
+/**
+ * Normalize a DEX pair to { base, quote }.
+ * Accepts BASE/QUOTE, BASE-QUOTE, BASE_QUOTE, BASE QUOTE, BASE:QUOTE,
+ * and concatenated BASEQUOTE (resolved longest-match against the
+ * venue's curated token table, e.g. ETHUSDC → ETH/USDC).
+ */
+export function normalizeDexPair(
+  pair: string,
+  chain: DexChain
+): { base: string; quote: string } {
+  const trimmed = pair.trim().toUpperCase();
+  for (const sep of ["/", "-", "_", " ", ":"]) {
+    if (trimmed.includes(sep)) {
+      const parts = trimmed
+        .split(sep)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (parts.length !== 2 || !parts[0] || !parts[1]) {
+        throw new Error("Invalid DEX pair (expected BASE/QUOTE)");
+      }
+      return { base: parts[0], quote: parts[1] };
+    }
+  }
+  const symbols = Object.keys(CURATED_MINTS[chain]).sort(
+    (a, b) => b.length - a.length
+  );
+  for (const quote of symbols) {
+    if (trimmed.endsWith(quote) && trimmed.length > quote.length) {
+      const base = trimmed.slice(0, trimmed.length - quote.length);
+      if (base.length >= 2) return { base, quote };
+    }
+  }
+  throw new Error("Invalid DEX pair (expected BASE/QUOTE)");
+}
+
 export class DexWalletClient implements IExchangeClient {
   constructor(
     private readonly binding: ServiceBinding,
@@ -108,14 +143,7 @@ export class DexWalletClient implements IExchangeClient {
   ) {}
 
   parsePair(pair: string): { base: string; quote: string } {
-    const parts = pair.split("/");
-    if (parts.length !== 2 || !parts[0] || !parts[1]) {
-      throw new Error("Invalid DEX pair (expected BASE/QUOTE)");
-    }
-    return {
-      base: parts[0].toUpperCase(),
-      quote: parts[1].toUpperCase(),
-    };
+    return normalizeDexPair(pair, this.venue.chain);
   }
 
   private resolveMint(symbol: string): CuratedMint {

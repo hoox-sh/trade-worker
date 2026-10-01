@@ -22,7 +22,26 @@ describe("DexWalletClient", () => {
       env,
       DEX_VENUES["uniswap-ethereum"]!
     );
-    expect(() => c.parsePair("ETHUSDC")).toThrow(/BASE\/QUOTE/);
+    expect(() => c.parsePair("!!!")).toThrow(/BASE\/QUOTE/);
+    expect(() => c.parsePair("ETH")).toThrow(/BASE\/QUOTE/);
+    expect(() => c.parsePair("")).toThrow(/BASE\/QUOTE/);
+  });
+
+  it("normalizes dash/underscore/concatenated pairs", () => {
+    const c = new DexWalletClient(
+      mockBinding(() => new Response("{}")) as any,
+      env,
+      DEX_VENUES["uniswap-ethereum"]!
+    );
+    expect(c.parsePair("ETH-USDC")).toEqual({ base: "ETH", quote: "USDC" });
+    expect(c.parsePair("ETH_USDC")).toEqual({ base: "ETH", quote: "USDC" });
+    expect(c.parsePair("ETHUSDC")).toEqual({ base: "ETH", quote: "USDC" });
+    const sol = new DexWalletClient(
+      mockBinding(() => new Response("{}")) as any,
+      env,
+      DEX_VENUES["jupiter-solana"]!
+    );
+    expect(sol.parsePair("SOLUSDC")).toEqual({ base: "SOL", quote: "USDC" });
   });
 
   it("openLong spends quote to buy base via POST /swap", async () => {

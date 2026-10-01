@@ -503,6 +503,26 @@ describe("Trade Worker Helpers", () => {
     it("should return false for unknown exchange", async () => {
       expect(validateApiCredentials("kraken", mockEnv)).toBe(false);
     });
+    it("should return true for DEX venues with a wallet binding", async () => {
+      expect(
+        validateApiCredentials("uniswap-ethereum", {
+          ...mockEnv,
+          WEB3_WALLET_SERVICE: {},
+        } as never)
+      ).toBe(true);
+      expect(
+        validateApiCredentials("jupiter-solana", {
+          ...mockEnv,
+          WEB3_WALLET_SERVICE: {},
+        } as never)
+      ).toBe(true);
+    });
+    it("should return false for DEX venues without a wallet binding", async () => {
+      const { WEB3_WALLET_SERVICE: _dropped, ...withoutWallet } = mockEnv;
+      expect(
+        validateApiCredentials("uniswap-ethereum", withoutWallet as never)
+      ).toBe(false);
+    });
   });
 
   describe("validateTradePayload", () => {

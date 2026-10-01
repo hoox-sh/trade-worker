@@ -25,6 +25,7 @@ import {
   hasExchangeCredentials,
   type CredentialSource,
 } from "./exchange-credentials";
+import { resolveDexVenue } from "./dex-venues";
 import { ExchangeRouter, type Env } from "./exchange-router";
 import { sendTradeNotificationToTelegram } from "./notifications";
 
@@ -62,6 +63,8 @@ export interface ExecutionEnv {
   BYBIT_SECRET_BINDING?: string;
   BYBIT_TESTNET_KEY_BINDING?: string;
   BYBIT_TESTNET_SECRET_BINDING?: string;
+  /** Web3 wallet service binding for DEX spot venues (Uniswap/Jupiter). */
+  WEB3_WALLET_SERVICE?: Fetcher;
 }
 
 // Generic client interface (mirrored from index.ts to avoid circular dependency)
@@ -222,11 +225,16 @@ export async function updateD1TradeRecords(
 /**
  * Checks if API credentials seem configured for a given exchange.
  * Uses unified EXCHANGE_* secrets (with legacy per-venue fallback).
+ * DEX spot venues (uniswap-*, jupiter-*) trade via the
+ * WEB3_WALLET_SERVICE binding instead of exchange API keys.
  */
 export function validateApiCredentials(
   exchange: string,
   env: ExecutionEnv
 ): boolean {
+  if (resolveDexVenue(exchange)) {
+    return Boolean(env.WEB3_WALLET_SERVICE);
+  }
   return hasExchangeCredentials(exchange, env, false);
 }
 

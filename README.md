@@ -9,7 +9,7 @@
 
 ---
 
-The execution plane. The trade-worker consumes from the `trade-execution` queue (backed by Cloudflare Queues with at-least-once delivery) and dispatches signed REST orders to Binance, Bybit, and MEXC — all three supported as first-class exchange targets. Each order is wrapped in an exponential-backoff retry loop (up to 5 attempts, jittered) with dead-letter escalation to R2 for forensic replay.
+The execution plane. The trade-worker consumes from the `trade-execution` queue (backed by Cloudflare Queues with at-least-once delivery) and dispatches signed REST orders to Binance, Bybit, and MEXC, plus DEX spots (`uniswap-ethereum`, `uniswap-arbitrum`, `jupiter-solana`) over `WEB3_WALLET_SERVICE`. CEX orders use an exponential-backoff retry loop (up to 5 attempts, jittered) with dead-letter escalation to R2 for forensic replay.
 
 Post-execution, the worker logs structured trade records to D1 (via the [`d1-worker`](https://github.com/hoox-sh/d1-worker) service binding), offloads verbose byte-level logs to R2 (`hoox-system-logs`), fires telemetry events to the [`analytics-worker`](https://github.com/hoox-sh/analytics-worker), and pushes human-readable confirmations through the [`telegram-worker`](https://github.com/hoox-sh/telegram-worker). It is the only isolate in the mesh that holds exchange API credentials at runtime.
 
@@ -30,9 +30,10 @@ Post-execution, the worker logs structured trade records to D1 (via the [`d1-wor
      ▼       ▼
   Exchanges  R2 (logs)
   (Binance,  │
-   Bybit,    ├──► d1-worker (trades, positions)
-   MEXC)     ├──► analytics-worker (telemetry)
-             └──► telegram-worker (confirmations)
+   Bybit,    ├──► web3-wallet-worker (DEX /swap)
+   MEXC,     ├──► d1-worker (trades, positions)
+   Uniswap,  ├──► analytics-worker (telemetry)
+   Jupiter)  └──► telegram-worker (confirmations)
 ```
 
 ### Service Bindings
@@ -42,6 +43,7 @@ Post-execution, the worker logs structured trade records to D1 (via the [`d1-wor
 | [`d1-worker`](https://github.com/hoox-sh/d1-worker)               | `D1_SERVICE`        | Trade/position persistence |
 | [`telegram-worker`](https://github.com/hoox-sh/telegram-worker)   | `TELEGRAM_SERVICE`  | Execution notifications    |
 | [`analytics-worker`](https://github.com/hoox-sh/analytics-worker) | `ANALYTICS_SERVICE` | Performance telemetry      |
+| [`web3-wallet-worker`](https://github.com/hoox-sh/web3-wallet-worker) | `WEB3_WALLET_SERVICE` | Uniswap V3 / Jupiter spots |
 
 ### Entry Points
 
@@ -62,6 +64,9 @@ Post-execution, the worker logs structured trade records to D1 (via the [`d1-wor
 | Binance  | `fapi.binance.com`  | `X-MBX-APIKEY` + HMAC-SHA256 | 1200 req/min | Yes → `testnet.binancefuture.com` |
 | Bybit    | `api.bybit.com`     | `API-Key` + HMAC-SHA256      | 50 req/s     | Yes → `api-testnet.bybit.com`     |
 | MEXC     | `contract.mexc.com` | `ApiKey` + HMAC-SHA256       | 20 req/s     | No (no public REST sandbox)       |
+| Uniswap Ethereum | SwapRouter02 | wallet binding | — | No (mainnet-only) |
+| Uniswap Arbitrum | SwapRouter02 | wallet binding | — | No (mainnet-only) |
+| Jupiter Solana | `api.jup.ag/swap/v2` | wallet binding | — | No (mainnet-only) |
 
 ### Test trading
 
@@ -77,7 +82,7 @@ Set `"test": true` on the webhook/queue JSON payload to route to the exchange te
 | Agent | Skips `*-testnet-*` OPEN rows |
 | Dashboard | Positions filter Live/Testnet; **TEST** badge; close sends `test: true` |
 
-Docs: [Test Trading](https://docs.hoox.sh/enduser/guides/test-trading) (or `docs/enduser/guides/test-trading.mdx` in-repo).
+Docs: [Test Trading](https://docs.hoox.sh/docs/enduser/guides/test-trading) · [DEX spot swaps](https://docs.hoox.sh/docs/enduser/guides/dex-spot-swaps)
 
 ### Development
 
@@ -95,13 +100,14 @@ bun test workers/trade-worker
 - **[d1-worker](https://github.com/hoox-sh/d1-worker)** — D1_SERVICE — trades, positions, audit rows
 - **[telegram-worker](https://github.com/hoox-sh/telegram-worker)** — TELEGRAM_SERVICE — fill confirmations
 - **[analytics-worker](https://github.com/hoox-sh/analytics-worker)** — ANALYTICS_SERVICE — execution telemetry
+- **[web3-wallet-worker](https://github.com/hoox-sh/web3-wallet-worker)** — WEB3_WALLET_SERVICE — DEX ExactIn swaps
 
 Full mesh (all isolates live as git submodules under [`hoox-sh/hoox`](https://github.com/hoox-sh/hoox) `workers/`):
 
 | Isolate | Role | Repository |
 | ------- | ---- | ---------- |
 | [hoox-worker](https://github.com/hoox-sh/hoox-worker) | Public webhook gateway (WAF, idempotency, dispatch) | monorepo `workers/hoox-worker` |
-| [trade-worker](https://github.com/hoox-sh/trade-worker) | Multi-exchange order execution (Binance / Bybit / MEXC) | monorepo `workers/trade-worker` |
+| [trade-worker](https://github.com/hoox-sh/trade-worker) | CEX + DEX spots (Uniswap V3 / Jupiter) | monorepo `workers/trade-worker` |
 | [agent-worker](https://github.com/hoox-sh/agent-worker) | AI risk manager (configurable cron 1–1440 min, kill switch) | monorepo `workers/agent-worker` |
 | [d1-worker](https://github.com/hoox-sh/d1-worker) | D1 SQL proxy + settings / balances / positions | monorepo `workers/d1-worker` |
 | [telegram-worker](https://github.com/hoox-sh/telegram-worker) | Alerts, bot commands, RAG copilot | monorepo `workers/telegram-worker` |

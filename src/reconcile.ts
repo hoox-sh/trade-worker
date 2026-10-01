@@ -30,10 +30,15 @@ import {
   hasExchangeCredentials,
   resolveExchangeCredentials,
 } from "./exchange-credentials";
+import { DEX_VENUE_NAMES, resolveDexVenue } from "./dex-venues";
 
 const logger = createLogger({ service: "trade-worker", module: "reconcile" });
 
-const SUPPORTED_EXCHANGES = ["binance", "bybit", "mexc"] as const;
+const CEX_EXCHANGES = ["binance", "bybit", "mexc"] as const;
+const SUPPORTED_EXCHANGES = [
+  ...CEX_EXCHANGES,
+  ...DEX_VENUE_NAMES,
+] as unknown as readonly [string, ...string[]];
 export type ReconcileExchange = (typeof SUPPORTED_EXCHANGES)[number];
 
 /** Max concurrent per-exchange position fetches / reconcile work. */
@@ -459,6 +464,15 @@ export function createReconcileClient(
     );
   }
   const opts = { testnet };
+  const dexVenue = resolveDexVenue(exchange);
+  if (dexVenue) {
+    if (testnet) {
+      throw new Error(
+        `TEST_TRADING_UNSUPPORTED: ${exchange} does not support test/sandbox trading via API`
+      );
+    }
+    return factories.createDexWalletClient(env, dexVenue.name);
+  }
   switch (exchange.toLowerCase()) {
     case "binance":
       return factories.createBinanceClient(creds.apiKey, creds.apiSecret, opts);
@@ -499,10 +513,58 @@ async function reconcileOneExchange(
   }
 
   if (!clients?.[exchange] && !hasExchangeCredentials(exchange, env, testnet)) {
+    const dexVenue = resolveDexVenue(exchange);
+    if (!dexVenue) {
+      return {
+        exchange,
+        status: "skipped",
+        reason: "no_credentials",
+        exchangeOpen: 0,
+        d1OpenBefore: 0,
+        upserted: 0,
+        closed: 0,
+        unchanged: 0,
+        errors: [],
+      };
+    }
+    const walletBinding = (env as unknown as { WEB3_WALLET_SERVICE?: unknown })
+      .WEB3_WALLET_SERVICE;
+    if (!walletBinding) {
+      return {
+        exchange,
+        status: "skipped",
+        reason: "no_credentials",
+        exchangeOpen: 0,
+        d1OpenBefore: 0,
+        upserted: 0,
+        closed: 0,
+        unchanged: 0,
+        errors: [],
+      };
+    }
+    // Spot venues settle on-chain with no open futures positions to diff
+    // (DexWalletClient.getPositions returns []). Closing D1 OPEN spot rows
+    // from an empty quote would erase holdings, so skip explicitly.
     return {
       exchange,
       status: "skipped",
-      reason: "no_credentials",
+      reason: "dex_spot_no_reconcile",
+      exchangeOpen: 0,
+      d1OpenBefore: 0,
+      upserted: 0,
+      closed: 0,
+      unchanged: 0,
+      errors: [],
+    };
+  }
+
+  // Injected DEX clients (tests) run the normal diff; live DEX venues skip —
+  // spot holdings are not futures positions (see above).
+  if (!clients?.[exchange] && resolveDexVenue(exchange)) {
+    return {
+      exchange,
+      status: "skipped",
+      reason: "dex_spot_no_reconcile",
       exchangeOpen: 0,
       d1OpenBefore: 0,
       upserted: 0,
