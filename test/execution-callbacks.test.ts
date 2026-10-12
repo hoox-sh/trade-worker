@@ -18,12 +18,28 @@
  *
  * `mock.module` must run before `../src/execution` is evaluated, so
  * this file uses dynamic imports (top-level await) instead of static
- * imports for the modules under test. Keep these mock-behavior tests
- * isolated here — the mocks are file-scoped.
+ * imports for the modules under test.
+ *
+ * The service-bindings mock DELEGATES to the real module for everything
+ * except the flag above. A hand-written mirror rotted before (it missed
+ * the `internalKey` option agent-style callers pass), leaking
+ * "auth key not configured" rejections into unrelated suites in the
+ * same process. Delegation keeps the mock faithful by construction.
  */
 
-import { describe, expect, it, mock, spyOn } from "bun:test";
+import { describe, expect, it, mock, spyOn, afterAll } from "bun:test";
 import { KVKeys } from "@hoox-sh/hoox-shared/kvKeys";
+
+// --- Real-module snapshots (before mock.module below) ---
+//
+// Spread snapshots evaluated NOW: module namespaces resolve live, so a
+// bare namespace reference (or a lazy spread inside the mock factory)
+// would read back mock values once mock.module is registered.
+
+const realBindings = {
+  ...(await import("@hoox-sh/hoox-shared/service-bindings")),
+};
+const realNotifications = { ...(await import("../src/notifications")) };
 
 // --- Module mocks (must be registered before dynamic imports below) ---
 
@@ -32,126 +48,44 @@ const controls = {
   rejectBackgroundWrites: false,
 };
 
-mock.module("@hoox-sh/hoox-shared/service-bindings", () => {
-  // Faithful-enough mirror of the real module's auth-key plumbing.
-  // Values match packages/shared/src/service-bindings.ts.
-  const pick = (
-    env: Record<string, unknown>,
-    fields: string | readonly string[]
-  ): string | undefined => {
-    const list = Array.isArray(fields) ? fields : [fields];
-    for (const f of list) {
-      const v = env[f];
-      if (typeof v === "string" && v.length > 0) return v;
+mock.module("@hoox-sh/hoox-shared/service-bindings", () => ({
+  ...realBindings,
+  authenticatedServiceFetch: (
+    binding: never,
+    env: never,
+    path: string,
+    body?: unknown,
+    options?: Record<string, unknown>
+  ) => {
+    if (controls.rejectBackgroundWrites) {
+      // Simulate the "impossible" case: the write promise rejects
+      // even after production's `.catch` is attached.
+      return {
+        catch: () => Promise.reject(new Error("background write lost")),
+      };
     }
-    return undefined;
-  };
-  const ALL_FIELDS = {
-    InternalAuthKeyFields: {
-      DEFAULT: "INTERNAL_KEY_BINDING",
-      D1_READ: "D1_READ_KEY_BINDING",
-      D1_WRITE: "D1_WRITE_KEY_BINDING",
-      TRADE_EXECUTE: "TRADE_EXECUTE_KEY_BINDING",
-      TRADE_READ: "TRADE_READ_KEY_BINDING",
-      TELEGRAM_ALERT: "TELEGRAM_INTERNAL_KEY_BINDING",
-      WALLET_EXECUTE: "WALLET_EXECUTE_KEY_BINDING",
-      AGENT: "AGENT_INTERNAL_KEY",
-      D1_INTERNAL_ALIAS: "D1_INTERNAL_KEY",
-      TRADE_INTERNAL_ALIAS: "TRADE_INTERNAL_KEY",
-      TELEGRAM_INTERNAL_ALIAS: "TELEGRAM_INTERNAL_KEY",
-    },
-    D1_READ_AUTH_KEY_FIELDS: ["D1_READ_KEY_BINDING", "INTERNAL_KEY_BINDING"],
-    D1_WRITE_AUTH_KEY_FIELDS: ["D1_WRITE_KEY_BINDING", "INTERNAL_KEY_BINDING"],
-    TRADE_EXECUTE_AUTH_KEY_FIELDS: [
-      "TRADE_EXECUTE_KEY_BINDING",
-      "INTERNAL_KEY_BINDING",
-      "AGENT_INTERNAL_KEY",
-    ],
-    TRADE_READ_AUTH_KEY_FIELDS: [
-      "TRADE_READ_KEY_BINDING",
-      "INTERNAL_KEY_BINDING",
-    ],
-    TELEGRAM_ALERT_AUTH_KEY_FIELDS: [
-      "TELEGRAM_INTERNAL_KEY_BINDING",
-      "INTERNAL_KEY_BINDING",
-    ],
-    WALLET_EXECUTE_AUTH_KEY_FIELDS: [
-      "WALLET_EXECUTE_KEY_BINDING",
-      "INTERNAL_KEY_BINDING",
-    ],
-    DASHBOARD_D1_READ_AUTH_KEY_FIELDS: [
-      "D1_READ_KEY_BINDING",
-      "D1_INTERNAL_KEY",
-      "INTERNAL_KEY_BINDING",
-    ],
-    DASHBOARD_TRADE_EXECUTE_AUTH_KEY_FIELDS: [
-      "TRADE_EXECUTE_KEY_BINDING",
-      "TRADE_INTERNAL_KEY",
-      "INTERNAL_KEY_BINDING",
-    ],
-    DASHBOARD_TELEGRAM_ALERT_AUTH_KEY_FIELDS: [
-      "TELEGRAM_INTERNAL_KEY_BINDING",
-      "TELEGRAM_INTERNAL_KEY",
-      "INTERNAL_KEY_BINDING",
-    ],
-  };
-  return {
-    ...ALL_FIELDS,
-    ServiceAuthError: class ServiceAuthError extends Error {
-      constructor(message: string) {
-        super(message);
-        this.name = "ServiceAuthError";
-      }
-    },
-    resolveInternalAuthKey: (
-      env: Record<string, unknown>,
-      keyFields: string | readonly string[]
-    ) => pick(env, keyFields),
-    serviceFetch: (
-      binding: { fetch: typeof fetch },
-      path: string,
-      body?: unknown
-    ) =>
-      binding.fetch(`http://internal${path}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: body != null ? JSON.stringify(body) : undefined,
-      }),
-    authenticatedServiceFetch: (
-      binding: { fetch: typeof fetch },
-      env: Record<string, unknown>,
-      path: string,
-      body?: unknown,
-      options?: { internalKeyFields?: string | readonly string[] }
-    ) => {
-      if (controls.rejectBackgroundWrites) {
-        // Simulate the "impossible" case: the write promise rejects
-        // even after production's `.catch` is attached.
-        return {
-          catch: () => Promise.reject(new Error("background write lost")),
-        };
-      }
-      const key = options?.internalKeyFields
-        ? pick(env, options.internalKeyFields)
-        : (env["INTERNAL_KEY_BINDING"] as string | undefined);
-      if (!key) return Promise.reject(new Error("auth key not configured"));
-      return binding.fetch(`http://internal${path}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Internal-Auth-Key": key,
-        },
-        body: body != null ? JSON.stringify(body) : undefined,
-      });
-    },
-  };
-});
+    return (
+      realBindings.authenticatedServiceFetch as (
+        ...a: unknown[]
+      ) => Promise<Response>
+    )(binding, env, path, body, options);
+  },
+}));
 
 mock.module("../src/notifications", () => ({
+  ...realNotifications,
   sendTradeNotificationToTelegram: async () => {
     throw new Error("telegram down");
   },
 }));
+
+afterAll(() => {
+  // Belt and suspenders: re-register the real snapshots so that even if
+  // this file's mocks leak process-wide (mock.restore() cannot undo
+  // mock.module), later suites resolve working implementations.
+  mock.module("@hoox-sh/hoox-shared/service-bindings", () => realBindings);
+  mock.module("../src/notifications", () => realNotifications);
+});
 
 // Dynamic imports — evaluated AFTER the mocks above are registered.
 const { executeTrade, updateD1TradeRecords } = await import("../src/execution");
