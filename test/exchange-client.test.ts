@@ -295,3 +295,40 @@ describe("hmacSign", () => {
     expect(mockSign).toHaveBeenCalledTimes(secrets.length);
   });
 });
+
+// ---------------------------------------------------------------------------
+// cryptoSign — real WebCrypto round-trip (RFC 4231 §4.2 test case 2)
+// ---------------------------------------------------------------------------
+describe("BaseExchangeClient cryptoSign", () => {
+  test("matches the RFC 4231 HMAC-SHA-256 test vector", async () => {
+    const client = new TestClient("key", "Jefe");
+    const c = client as unknown as {
+      cryptoSign(data: string): Promise<string>;
+    };
+    const result = await c.cryptoSign("what do ya want for nothing?");
+    expect(result).toBe(
+      "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+    );
+  });
+
+  test("is deterministic and matches hmacSign for the same inputs", async () => {
+    const client = new TestClient("key", "s3cr3t");
+    const c = client as unknown as {
+      cryptoSign(data: string): Promise<string>;
+    };
+    const first = await c.cryptoSign("payload");
+    const second = await c.cryptoSign("payload");
+    expect(first).toBe(second);
+    expect(first).toBe(await hmacSign("s3cr3t", "payload"));
+  });
+
+  test("accepts an options object with baseUrl and testnet", () => {
+    const client = new TestClient("k", "s", {
+      baseUrl: "https://opts.example",
+      testnet: true,
+    });
+    const c = client as unknown as { baseUrl: string; isTestnet: boolean };
+    expect(c.baseUrl).toBe("https://opts.example");
+    expect(c.isTestnet).toBe(true);
+  });
+});
