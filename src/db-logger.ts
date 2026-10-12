@@ -34,14 +34,15 @@
 // Define Env structure expected by the logger
 // This should align with the Env interface in index.ts
 
-import {
-  createLogger,
-  safeWaitUntil,
-} from "@hoox-sh/hoox-shared/middleware";
+import { createLogger, safeWaitUntil } from "@hoox-sh/hoox-shared/middleware";
+import { scopeR2Key } from "@hoox-sh/hoox-shared/tenant";
 
 interface LoggerEnv {
   D1_SERVICE?: Fetcher;
   SYSTEM_LOGS_BUCKET?: R2Bucket;
+  /** Opt-in tenant isolation (see @hoox-sh/hoox-shared/tenant). Absent = self-host default. */
+  TENANT_ID?: string;
+  TENANT_MODE?: string;
 }
 
 // Interface defining the DbLogger's capabilities (optional but good practice)
@@ -114,7 +115,9 @@ export class DbLogger implements IDbLogger {
     if (depth > 5 || value === null || value === undefined) return value;
     if (typeof value !== "object") return value;
     if (Array.isArray(value)) {
-      return value.map((item) => DbLogger.redactSensitiveValue(item, depth + 1));
+      return value.map((item) =>
+        DbLogger.redactSensitiveValue(item, depth + 1)
+      );
     }
     const out: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(
@@ -166,7 +169,11 @@ export class DbLogger implements IDbLogger {
       };
 
       const dateStr = new Date().toISOString().split("T")[0];
-      const filename = `requests/${dateStr}/${logId}.json`;
+      // Opt-in tenant isolation (identity when TENANT_MODE is off).
+      const filename = scopeR2Key(
+        this.env,
+        `requests/${dateStr}/${logId}.json`
+      );
 
       const putPromise = this.env.SYSTEM_LOGS_BUCKET.put(
         filename,
@@ -257,7 +264,10 @@ export class DbLogger implements IDbLogger {
       };
 
       const dateStr = new Date().toISOString().split("T")[0];
-      const filename = `responses/${dateStr}/${requestId}.json`;
+      const filename = scopeR2Key(
+        this.env,
+        `responses/${dateStr}/${requestId}.json`
+      );
 
       const putPromise = this.env.SYSTEM_LOGS_BUCKET.put(
         filename,

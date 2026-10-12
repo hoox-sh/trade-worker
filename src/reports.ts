@@ -11,6 +11,7 @@ import {
 } from "@hoox-sh/hoox-shared/middleware";
 import { TRADE_READ_AUTH_KEY_FIELDS } from "@hoox-sh/hoox-shared/service-bindings";
 import { toError } from "@hoox-sh/hoox-shared/errors";
+import { effectiveTenantId } from "@hoox-sh/hoox-shared/tenant";
 
 const logger = createLogger({ service: "trade-worker", module: "reports" });
 
@@ -27,6 +28,9 @@ const MAX_REPORT_KEY_LENGTH = 512;
 export interface ReportsEnv {
   REPORTS_BUCKET?: R2Bucket;
   INTERNAL_KEY_BINDING?: string;
+  /** Opt-in tenant isolation (see @hoox-sh/hoox-shared/tenant). Absent = self-host default. */
+  TENANT_ID?: string;
+  TENANT_MODE?: string;
 }
 
 // --- Helpers ---
@@ -95,12 +99,16 @@ export async function saveReportToR2(
       2
     );
 
-    // Generate a unique filename under the locked-down prefix
+    // Generate a unique filename under the locked-down prefix.
+    // Opt-in tenant isolation keeps the prefix guard passing: t-<id> nests
+    // inside trade-reports/ (identity otherwise).
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const exchangeSeg = sanitizeReportPathSegment(payload.exchange);
     const symbolSeg = sanitizeReportPathSegment(payload.symbol);
     const idSeg = sanitizeReportPathSegment(dbLogId || "no-id");
-    const filename = `${REPORT_KEY_PREFIX}${exchangeSeg}/${symbolSeg}/${timestamp}-${idSeg}.json`;
+    const tenantId = effectiveTenantId(env, payload);
+    const tenantSeg = tenantId ? `t-${tenantId}/` : "";
+    const filename = `${REPORT_KEY_PREFIX}${tenantSeg}${exchangeSeg}/${symbolSeg}/${timestamp}-${idSeg}.json`;
 
     logger.info("Attempting to save report to R2", { dbLogId, filename });
 

@@ -15,6 +15,7 @@ import { createJsonResponse, toError } from "@hoox-sh/hoox-shared/errors";
 import { createLogger, safeWaitUntil } from "@hoox-sh/hoox-shared/middleware";
 import type { WebhookPayload } from "@hoox-sh/hoox-shared/types";
 import { trackAnalytics } from "@hoox-sh/hoox-shared/analytics";
+import { scopeKey } from "@hoox-sh/hoox-shared/tenant";
 import { KVKeys } from "@hoox-sh/hoox-shared/kvKeys";
 import {
   checkKillSwitch,
@@ -504,8 +505,10 @@ export async function executeTrade(
     // Live WS path: route() skips REST client construction (perf).
     if (useWebsocketDO && !testnet && env.EXCHANGE_CONNECTION_MANAGER) {
       logger.info(`Routing trade to DO for ${routedExchange}`);
+      // Opt-in tenant isolation: connection DOs are tenant-scoped when the
+      // payload carries a tenant (platform paths) or TENANT_MODE is on.
       const id = env.EXCHANGE_CONNECTION_MANAGER.idFromName(
-        `exchange:${routedExchange}`
+        scopeKey(env, `exchange:${routedExchange}`, payload)
       );
       // DurableObjectStub is an RPC proxy — cast to access RPC methods
       const stub = env.EXCHANGE_CONNECTION_MANAGER.get(id) as unknown as {

@@ -27,6 +27,7 @@ import {
   ProcessRequestBody,
 } from "@hoox-sh/hoox-shared/types";
 import { trackAnalytics } from "@hoox-sh/hoox-shared/analytics";
+import { scopeKey } from "@hoox-sh/hoox-shared/tenant";
 import { healthCheck } from "@hoox-sh/hoox-shared/health";
 import {
   authenticatedServiceFetch,
@@ -61,6 +62,9 @@ export { ExchangeConnectionManager };
 // --- Type Definitions ---
 
 export interface Env extends Cloudflare.Env {
+  /** Opt-in tenant isolation (see @hoox-sh/hoox-shared/tenant). Absent = self-host default. */
+  TENANT_ID?: string;
+  TENANT_MODE?: string;
   EXCHANGE_CONNECTION_MANAGER: DurableObjectNamespace<ExchangeConnectionManager>;
   /** Optional unified testnet keys (preferred when payload.test is true). */
   EXCHANGE_TESTNET_KEY_BINDING?: string;
@@ -184,9 +188,7 @@ function checkJsonBodySize(request: Request): Response | null {
  */
 async function parseJsonBody(
   request: Request
-): Promise<
-  { ok: true; value: unknown } | { ok: false; response: Response }
-> {
+): Promise<{ ok: true; value: unknown } | { ok: false; response: Response }> {
   const sizeError = checkJsonBodySize(request);
   if (sizeError) return { ok: false, response: sizeError };
 
@@ -267,7 +269,9 @@ async function executeTradeFromQueue(
     // Check presence only before execute; store only after successful execute
     // so a failed first attempt with the same requestId can still retry within TTL.
     // If key already present (prior success), ack without re-execute.
-    const idempKey = resolveQueueIdempotencyKey(trade);
+    // Opt-in tenant isolation: message-carried tenantId (shared consumer)
+    // or env tenant (flag on) scopes the KV key; identity when off.
+    const idempKey = scopeKey(env, resolveQueueIdempotencyKey(trade), trade);
     const idemp = await isIdempotencyKeyPresent(env.CONFIG_KV, idempKey);
     if (idemp.skipped) {
       logger.warn(
@@ -288,6 +292,7 @@ async function executeTradeFromQueue(
       price: trade.price,
       leverage: trade.leverage,
       test: trade.test,
+      ...(trade.tenantId ? { tenantId: trade.tenantId } : {}),
     };
 
     const dbLogger = factories.createDbLogger(env as ExecutionEnv);
@@ -633,8 +638,7 @@ async function handleWebhookRequest(
           },
           { indexes: [probeId] }
         ),
-        (err) =>
-          logger.error("trackAnalytics failed", { error: String(err) })
+        (err) => logger.error("trackAnalytics failed", { error: String(err) })
       );
       const twHopMs = performance.now() - tHopStart;
       console.log(
@@ -669,7 +673,11 @@ async function handleWebhookRequest(
     // Race note: concurrent in-flight requests with the same key may both pass the
     // check and hit the exchange (double-execute). Gateway DO is the primary gate;
     // CONFIG_KV lacks compare-and-set — this is best-effort only.
-    const idempKey = resolveTradeIdempotencyKey(request, validatedPayload);
+    const idempKey = scopeKey(
+      env,
+      resolveTradeIdempotencyKey(request, validatedPayload),
+      validatedPayload
+    );
     const idemp = await isIdempotencyKeyPresent(env.CONFIG_KV, idempKey);
     if (idemp.skipped) {
       logger.warn(
@@ -682,8 +690,7 @@ async function handleWebhookRequest(
       const response = createJsonResponse(
         {
           success: false,
-          error:
-            "Duplicate trade request. This trade was already processed.",
+          error: "Duplicate trade request. This trade was already processed.",
           code: "DUPLICATE",
         },
         409
@@ -737,8 +744,7 @@ async function handleWebhookRequest(
         latencyMs: webhookLatencyMs,
         success: tradeResult.success,
       }),
-      (err) =>
-        logger.error("trackAnalytics failed", { error: String(err) })
+      (err) => logger.error("trackAnalytics failed", { error: String(err) })
     );
 
     return tradeResponse;
@@ -856,7 +862,11 @@ async function handleProcessRequest(
     // Race note: concurrent in-flight requests with the same key may both pass the
     // check and hit the exchange (double-execute). Gateway DO is the primary gate;
     // CONFIG_KV lacks compare-and-set — this is best-effort only.
-    const idempKey = resolveTradeIdempotencyKey(request, validatedPayload);
+    const idempKey = scopeKey(
+      env,
+      resolveTradeIdempotencyKey(request, validatedPayload),
+      validatedPayload
+    );
     const idemp = await isIdempotencyKeyPresent(env.CONFIG_KV, idempKey);
     if (idemp.skipped) {
       logger.warn(
@@ -869,8 +879,7 @@ async function handleProcessRequest(
       const response = createJsonResponse(
         {
           success: false,
-          error:
-            "Duplicate trade request. This trade was already processed.",
+          error: "Duplicate trade request. This trade was already processed.",
           code: "DUPLICATE",
         },
         409
@@ -924,8 +933,7 @@ async function handleProcessRequest(
         latencyMs: processLatencyMs,
         success: tradeResult.success,
       }),
-      (err) =>
-        logger.error("trackAnalytics failed", { error: String(err) })
+      (err) => logger.error("trackAnalytics failed", { error: String(err) })
     );
 
     return tradeResponse;
