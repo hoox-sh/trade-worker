@@ -209,4 +209,59 @@ describe("sendTradeNotification", () => {
     );
     expect(body.message).toContain("binance [TEST]");
   });
+
+  test("forwards tenantId to telegram when TENANT_MODE is on", async () => {
+    const mockFetch = mock(() => new Response(null, { status: 200 }));
+    const mockEnv = {
+      TELEGRAM_SERVICE: { fetch: mockFetch },
+      TELEGRAM_INTERNAL_KEY_BINDING: "key",
+      TENANT_ID: "acme",
+      TENANT_MODE: "true",
+    };
+    const { sendTradeNotificationToTelegram } =
+      await import("../src/notifications");
+
+    await sendTradeNotificationToTelegram(
+      mockEnv as any,
+      { success: true, result: {} },
+      "mexc",
+      "LONG",
+      0.01,
+      "BTCUSDT",
+      "test-id"
+    );
+
+    expect(mockFetch).toHaveBeenCalled();
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as unknown as [string, RequestInit])[1]
+        .body as string
+    );
+    expect(body.tenantId).toBe("acme");
+  });
+
+  test("omits tenantId without TENANT_MODE", async () => {
+    const mockFetch = mock(() => new Response(null, { status: 200 }));
+    const mockEnv = {
+      TELEGRAM_SERVICE: { fetch: mockFetch },
+      TELEGRAM_INTERNAL_KEY_BINDING: "key",
+    };
+    const { sendTradeNotificationToTelegram } =
+      await import("../src/notifications");
+
+    await sendTradeNotificationToTelegram(
+      mockEnv as any,
+      { success: true, result: {} },
+      "mexc",
+      "LONG",
+      0.01,
+      "BTCUSDT",
+      "test-id"
+    );
+
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as unknown as [string, RequestInit])[1]
+        .body as string
+    );
+    expect("tenantId" in body).toBe(false);
+  });
 });

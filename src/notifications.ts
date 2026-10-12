@@ -10,6 +10,7 @@ import {
   TELEGRAM_ALERT_AUTH_KEY_FIELDS,
   resolveInternalAuthKey,
 } from "@hoox-sh/hoox-shared/service-bindings";
+import { withTenantId, type TenantEnv } from "@hoox-sh/hoox-shared/tenant";
 import type { TradeQueueMessage } from "@hoox-sh/hoox-shared";
 
 const logger = createLogger({
@@ -19,7 +20,7 @@ const logger = createLogger({
 
 export type { TradeQueueMessage };
 
-export interface NotificationsEnv {
+export interface NotificationsEnv extends TenantEnv {
   TELEGRAM_SERVICE?: Fetcher;
   TELEGRAM_INTERNAL_KEY_BINDING?: string;
   INTERNAL_KEY_BINDING?: string;
@@ -47,7 +48,9 @@ export async function sendTradeNotificationToTelegram(
       ? `Trade executed successfully on ${routedExchange}: ${action} ${quantity} ${symbol}. Result: ${JSON.stringify(result.result)}`
       : `Trade execution failed on ${routedExchange}: ${action} ${quantity} ${symbol}. Error: ${result?.error || "Unknown error"}`;
 
-    const telegramPayload = { message: notificationMessage };
+    // Forward the tenant so a shared telegram upload can attribute
+    // (identity when TENANT_MODE is off).
+    const telegramPayload = withTenantId(env, { message: notificationMessage });
     logger.info("Calling TELEGRAM_SERVICE for notification", { dbLogId });
     if (!resolveInternalAuthKey(env, TELEGRAM_ALERT_AUTH_KEY_FIELDS)) {
       logger.error(
