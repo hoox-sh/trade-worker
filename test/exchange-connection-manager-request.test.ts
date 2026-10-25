@@ -135,8 +135,8 @@ describe("ExchangeConnectionManager.request()", () => {
       5_000
     );
 
-    // Let microtasks settle so the request registers in the pending map
-    await new Promise((r) => setTimeout(r, 5));
+    // HMAC sign is async — wait for the request to land in the pending map
+    await new Promise((r) => setTimeout(r, 50));
 
     const pendingMap = (doInstance as any).pending as Map<string, unknown>;
     expect(pendingMap.size).toBe(1);
@@ -160,7 +160,8 @@ describe("ExchangeConnectionManager.request()", () => {
     await mockCtx.getLastWaitUntilPromise();
 
     const promise = (doInstance as any).request("order.place", {}, 5_000);
-    await new Promise((r) => setTimeout(r, 5));
+    // HMAC sign is async — wait for the request to land in the pending map
+    await new Promise((r) => setTimeout(r, 50));
     const pendingMap = (doInstance as any).pending as Map<string, unknown>;
     const id = [...pendingMap.keys()][0];
 
